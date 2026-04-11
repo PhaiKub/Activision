@@ -1,0 +1,283 @@
+"""
+ESP32 BLE HID Bridge — Bluetooth SPP Edition
+───────────────────────────────────────────────────────
+Drop-in replacement for Bridge class.
+- Mouse: ESP32 BLE HID (commands via Bluetooth SPP)
+- Keyboard: ESP32 BLE HID (commands via Bluetooth SPP)
+
+Usage:
+    b = ESP32Bridge(port="COM8")   # specify port
+    b = ESP32Bridge()              # auto-detect
+    b.mouse_move_relative(50, 0)
+    b.mouse_click("left")
+    b.key_tap("enter")
+"""
+
+import serial
+import serial.tools.list_ports
+import time
+import threading
+
+
+# ─── Key name → HID keycode ──────────────────────────
+
+# Arduino Keyboard library: printable keys use ASCII, special keys use 0x80+ constants
+KEY_CODES = {
+    # Printable — ASCII values
+    "a": ord("a"), "b": ord("b"), "c": ord("c"), "d": ord("d"),
+    "e": ord("e"), "f": ord("f"), "g": ord("g"), "h": ord("h"),
+    "i": ord("i"), "j": ord("j"), "k": ord("k"), "l": ord("l"),
+    "m": ord("m"), "n": ord("n"), "o": ord("o"), "p": ord("p"),
+    "q": ord("q"), "r": ord("r"), "s": ord("s"), "t": ord("t"),
+    "u": ord("u"), "v": ord("v"), "w": ord("w"), "x": ord("x"),
+    "y": ord("y"), "z": ord("z"),
+    "1": ord("1"), "2": ord("2"), "3": ord("3"), "4": ord("4"),
+    "5": ord("5"), "6": ord("6"), "7": ord("7"), "8": ord("8"),
+    "9": ord("9"), "0": ord("0"),
+    " ": ord(" "),
+    "-": ord("-"), "=": ord("="),
+    "[": ord("["), "]": ord("]"), "\\": ord("\\"),
+    ";": ord(";"), "'": ord("'"), "`": ord("`"),
+    ",": ord(","), ".": ord("."), "/": ord("/"),
+    # Special keys — Arduino Keyboard library constants
+    "enter": 0xB0, "return": 0xB0,
+    "esc": 0xB1, "escape": 0xB1,
+    "backspace": 0xB2,
+    "tab": 0xB3,
+    "space": ord(" "),  # ASCII space = 32
+    "insert": 0xD1, "home": 0xD2,
+    "pageup": 0xD3, "pgup": 0xD3,
+    "delete": 0xD4, "del": 0xD4,
+    "end": 0xD5,
+    "pagedown": 0xD6, "pgdn": 0xD6,
+    "right": 0xD7, "left": 0xD8, "down": 0xD9, "up": 0xDA,
+    "f1": 0xC2, "f2": 0xC3, "f3": 0xC4, "f4": 0xC5,
+    "f5": 0xC6, "f6": 0xC7, "f7": 0xC8, "f8": 0xC9,
+    "f9": 0xCA, "f10": 0xCB, "f11": 0xCC, "f12": 0xCD,
+    "ctrl": 0x80, "lctrl": 0x80,
+    "shift": 0x81, "lshift": 0x81,
+    "alt": 0x82, "lalt": 0x82,
+    "win": 0x83, "lwin": 0x83,
+    "rctrl": 0x84, "rshift": 0x85, "ralt": 0x86, "rwin": 0x87,
+}
+
+MOUSE_BUTTONS = {"left": 1, "right": 2, "middle": 3}
+
+
+class ESP32BridgeError(RuntimeError):
+    pass
+
+
+class ESP32Bridge:
+    """
+    ESP32 BLE HID Bridge via Bluetooth SPP.
+    All input (mouse + keyboard) goes through ESP32 BLE HID.
+    """
+
+    BAUD_RATE = 115200
+
+    def __init__(self, port=None, auto_open=True, **kwargs):
+        self._serial = None
+        self._port = port
+        self._lock = threading.Lock()
+        self._opened = False
+        if auto_open:
+            self.open()
+
+    # ─── Connection ───────────────────────────────────
+
+    @staticmethod
+    def _try_open_port(port, baud, timeout_sec=4):
+        """Try opening a serial port with a thread-based timeout (prevents BT hang)."""
+        result = {"serial": None, "error": None}
+
+        def _open():
+            try:
+                result["serial"] = serial.Serial(port, baud, timeout=2)
+            except Exception as e:
+                result["error"] = e
+
+        t = threading.Thread(target=_open, daemon=True)
+        t.start()
+        t.join(timeout=timeout_sec)
+
+        if t.is_alive():
+            # Thread hung (BT Incoming port) — abandon it
+            return None
+        if result["error"]:
+            return None
+        return result["serial"]
+
+    @staticmethod
+    def _find_port():
+        """Auto-detect ESP32 COM port (USB Serial or Bluetooth SPP)."""
+        usb_ports = []
+        bt_ports = []
+        for p in serial.tools.list_ports.comports():
+            desc = (p.description or "").lower()
+            hwid = (p.hwid or "").upper()
+            if any(kw in desc for kw in ["cp210", "ch340", "ch9102"]):
+                usb_ports.append(p.device)
+            elif "bluetooth" in desc or "BTHENUM" in hwid:
+                bt_ports.append(p.device)
+
+        # Try USB first (fastest, most reliable), then BT
+        for port in usb_ports + bt_ports:
+            s = ESP32Bridge._try_open_port(port, 115200, timeout_sec=5)
+            if s is None:
+                continue
+            try:
+                time.sleep(2)
+                s.reset_input_buffer()
+                s.write(b"P\n")
+                s.flush()
+                time.sleep(0.5)
+                resp = s.readline().decode("utf-8", errors="replace").strip()
+                if "PONG" in resp:
+                    s.close()
+                    return port
+                s.close()
+            except Exception:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+        return None
+
+    def open(self):
+        if self._opened:
+            return
+
+        port = self._port or self._find_port()
+        if not port:
+            raise ESP32BridgeError(
+                "ESP32 COM port not found!\n"
+                "1. Is ESP32 connected (USB or Bluetooth)?\n"
+                "2. Check Device Manager > Ports\n"
+                "3. Pass port='COM7' or port='COM9'"
+            )
+
+        s = self._try_open_port(port, self.BAUD_RATE, timeout_sec=5)
+        if s is None:
+            raise ESP32BridgeError(f"Cannot open {port} (timeout or permission error)")
+        self._serial = s
+
+        # ESP32 resets on serial open (DTR signal) — wait for boot
+        time.sleep(3)
+        self._serial.reset_input_buffer()
+
+        # Ping test with retries
+        for attempt in range(3):
+            self._send_raw("P")
+            time.sleep(0.3)
+            resp = self._serial.readline().decode("utf-8", errors="replace").strip()
+            if "PONG" in resp:
+                break
+            self._serial.reset_input_buffer()
+            time.sleep(0.5)
+        else:
+            self._serial.close()
+            raise ESP32BridgeError(f"ESP32 on {port} did not respond (got: '{resp}')")
+
+        self._opened = True
+        self._port = port
+        print(f"[ESP32Bridge] Connected on {port}")
+
+    def close(self):
+        if self._serial and self._serial.is_open:
+            try:
+                self._serial.close()
+            except Exception:
+                pass
+        self._serial = None
+        self._opened = False
+
+    def is_open(self):
+        return self._opened and self._serial is not None and self._serial.is_open
+
+    def shutdown(self, force=False):
+        self.close()
+
+    # ─── Internal ─────────────────────────────────────
+
+    def _send_raw(self, cmd):
+        if self._serial and self._serial.is_open:
+            self._serial.write(f"{cmd}\n".encode("utf-8"))
+            self._serial.flush()
+
+    def _read_response(self, timeout=0.5):
+        """Read one line response from ESP32."""
+        if self._serial and self._serial.is_open:
+            old_timeout = self._serial.timeout
+            self._serial.timeout = timeout
+            try:
+                resp = self._serial.readline().decode("utf-8", errors="replace").strip()
+                return resp
+            except Exception:
+                return ""
+            finally:
+                self._serial.timeout = old_timeout
+        return ""
+
+    def _send(self, cmd, wait_ack=True):
+        with self._lock:
+            self._send_raw(cmd)
+            if wait_ack:
+                self._read_response(timeout=0.5)
+
+    @staticmethod
+    def _key_code(key):
+        lowered = key.lower()
+        if lowered not in KEY_CODES:
+            raise ESP32BridgeError(f"Unsupported key: {key}")
+        return KEY_CODES[lowered]
+
+    @staticmethod
+    def _button_code(button):
+        lowered = button.lower()
+        if lowered not in MOUSE_BUTTONS:
+            raise ESP32BridgeError(f"Unsupported mouse button: {button}")
+        return MOUSE_BUTTONS[lowered]
+
+    # ─── Mouse (via ESP32 BLE HID) ───────────────────
+
+    def mouse_move_relative(self, dx, dy):
+        dx, dy = int(dx), int(dy)
+        while dx != 0 or dy != 0:
+            sx = max(-127, min(127, dx))
+            sy = max(-127, min(127, dy))
+            self._send(f"M {sx} {sy}", wait_ack=False)
+            dx -= sx
+            dy -= sy
+            time.sleep(0.005)  # 5ms pacing — BLE needs processing time
+
+    def mouse_press(self, button="left"):
+        self._send(f"D {self._button_code(button)}")
+
+    def mouse_release(self, button="left"):
+        self._send(f"U {self._button_code(button)}")
+
+    def mouse_click(self, button="left", delay_ms=30):
+        self._send(f"C {self._button_code(button)}")
+
+    def mouse_scroll(self, wheel):
+        self._send(f"S {int(wheel)}")
+
+    # ─── Keyboard (via ESP32 BLE HID) ────────────────
+
+    def key_press(self, key):
+        self._send(f"K {self._key_code(key)}")
+
+    def key_release_all(self):
+        self._send("A")
+
+    def key_tap(self, key, delay_ms=35):
+        self.key_press(key)
+        time.sleep(delay_ms / 1000.0)
+        self.key_release_all()
+
+    def key_multi_press(self, keys):
+        for key in keys:
+            self.key_press(key)
+        time.sleep(0.02)
+        self.key_release_all()
