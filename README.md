@@ -136,7 +136,7 @@ pip install -r requirements.txt
 
 Uses Bluetooth Serial to communicate. No WiFi setup required.
 
-**Firmware:** `esp32_firmware/esp32_bt_hid_bluetooth.ino.bak` (rename to `.ino` and flash)
+**Firmware:** `esp32_firmware/esp32_bt_hid_bluetooth.ino` (rename to `.ino` and flash)
 
 ```powershell
 python App.py
