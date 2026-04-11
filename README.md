@@ -216,6 +216,32 @@ Mirror-Dungeon-Bot/
 | Bot clicks wrong spot | Verify 1920×1080 resolution, ensure window is not scaled |
 | Keys not registering | Ensure BLE device is paired as HID (not just Bluetooth audio) |
 
+## License
+
+This project is licensed under the **GNU General Public License v3.0** — see the [LICENSE](LICENSE) file for details.
+
+```
+Original work: Copyright (C) AlexWalp
+Modified work: Copyright (C) 2026 Colors
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+```
+
+### Modifications from Original
+
+This is a modified version of [AlexWalp/Mirror-Dungeon-Bot](https://github.com/AlexWalp/Mirror-Dungeon-Bot).  
+The following changes were made (2026):
+
+- Replaced software-emulated input (Interception driver / Logitech DLL) with **ESP32 BLE HID**
+- Added ESP32 firmware (`esp32_firmware/esp32_bt_hid.ino`) for BLE HID mouse + keyboard
+- Added WiFi TCP communication bridge (`esp32_bridge.py`)
+- Replaced mouse movement from relative DLL moves to `SetCursorPos` (Windows API)
+- Removed Linux/X11 support (Windows-only fork)
+- Removed Logitech bridge dependency
+
 ---
 
 ## Credits
