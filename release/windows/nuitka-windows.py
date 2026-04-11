@@ -22,7 +22,6 @@ def _cmd(output_name: str, console_mode: str):
         f"--include-data-dir={os.path.join(ROOT_DIR, 'ImageAssets', 'UI')}=ImageAssets/UI",
         f"--include-data-dir={os.path.join(ROOT_DIR, 'ImageAssets', 'AppUI')}=ImageAssets/AppUI",
         f"--include-data-files={os.path.join(ROOT_DIR, 'app_icon.ico')}=app_icon.ico",
-        f"--include-data-files={os.path.join(ROOT_DIR, 'source', 'utils', 'bridge', 'bridge.dll')}=bridge_assets/bridge.dll",
         ENTRY,
     ]
 

@@ -24,6 +24,7 @@ import socket
 import time
 import threading
 import os
+import json
 
 try:
     import serial
@@ -31,6 +32,44 @@ try:
     HAS_SERIAL = True
 except ImportError:
     HAS_SERIAL = False
+
+
+def _config_path():
+    """Path to esp32_config.json next to the executable / project root."""
+    if "__compiled__" in globals():
+        import sys
+        base = os.path.dirname(os.path.abspath(sys.executable))
+    else:
+        base = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+    return os.path.join(base, "esp32_config.json")
+
+
+def _load_config_host():
+    """Load saved ESP32_HOST from esp32_config.json (returns None if not found)."""
+    path = _config_path()
+    if os.path.exists(path):
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+            return data.get("ESP32_HOST") or None
+        except Exception:
+            pass
+    return None
+
+
+def save_config_host(host):
+    """Save ESP32_HOST to esp32_config.json next to the executable."""
+    path = _config_path()
+    data = {}
+    if os.path.exists(path):
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+        except Exception:
+            pass
+    data["ESP32_HOST"] = host
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
 
 # ─── Key name → Arduino Keyboard code ────────────────
 
@@ -95,7 +134,7 @@ class ESP32Bridge:
         self._socket = None    # WiFi TCP
         self._serial = None    # Bluetooth SPP
         self._mode = None      # "wifi" or "bluetooth"
-        self._host = host or os.environ.get("ESP32_HOST", None)
+        self._host = host or os.environ.get("ESP32_HOST", None) or _load_config_host()
         self._port = port or os.environ.get("ESP32_PORT", None)
         self._tcp_port = int(os.environ.get("ESP32_TCP_PORT", self.DEFAULT_TCP_PORT))
         self._lock = threading.Lock()

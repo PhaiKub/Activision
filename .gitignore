@@ -15,5 +15,6 @@ os_wayland_backend.py
 input_api
 *.pyc
 .env
+esp32_config.json
 .vscode/
 .idea/

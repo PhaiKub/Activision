@@ -41,26 +41,55 @@ This fork replaces software-emulated input with real Bluetooth HID input via an 
 
 ---
 
-## Software & Libraries
+## Quick Start (.exe)
 
-### Python (PC side)
-| Package | Purpose |
-|---|---|
-| `opencv-python-headless` | Image detection / screenshot analysis |
-| `numpy` | Image processing |
-| `PySide6` | GUI interface |
-| `pathgenerator` | Mouse path generation |
-| `pyserial` | Bluetooth SPP serial communication |
+Download the `.exe` from [Releases](https://github.com/AlexWalp/Mirror-Dungeon-Bot/releases/latest) and follow the steps below.
 
-### Arduino (ESP32 firmware)
-| Library | Purpose |
-|---|---|
-| [ESP32-BLE-Combo](https://github.com/blackketter/ESP32-BLE-Combo) | Unified BLE Mouse + Keyboard HID |
-| `WiFi.h` | WiFi TCP server (built-in) |
+### 📡 Option 1: Bluetooth SPP (Simple — no WiFi needed)
+
+1. Flash firmware: `esp32_bt_hid_bluetooth.ino`
+2. Pair ESP32 ("Activision") with Windows via Bluetooth
+3. **Run `App.exe`** — the app will auto-detect ESP32 via Bluetooth
+4. If ESP32 is found → the app launches immediately ✅
+
+> No extra configuration needed. Just pair Bluetooth and run the .exe.
+
+### ⚡ Option 2: WiFi TCP (Faster — requires same network) ← **Recommended**
+
+1. Flash firmware: `esp32_bt_hid.ino` (edit WiFi SSID/Password before flashing)
+2. Check the ESP32's IP from Arduino Serial Monitor, e.g. `192.168.1.241`
+3. **Run `App.exe`** — if Bluetooth is not found, an IP input dialog will appear
+4. Enter the ESP32's IP address → click OK → connected ✅
+5. The IP is saved to `esp32_config.json` — **no need to re-enter next time**
+
+> 💡 To change the IP later, edit `esp32_config.json` next to the .exe:
+> ```json
+> {
+>   "ESP32_HOST": "192.168.1.241"
+> }
+> ```
+
+### Connection Flow
+
+```
+Run App.exe
+  │
+  ├─ ESP32 found via Bluetooth? ──► YES ──► App launches ✅
+  │
+  └─ NO
+      │
+      ├─ esp32_config.json exists? ──► Pre-fills saved IP in input field
+      │
+      └─ IP Address input dialog appears
+           │
+           ├─ Enter IP → OK → Connected ──► Save IP + App launches ✅
+           ├─ Connection failed ──► Retry / Cancel
+           └─ Cancel ──► App closes
+```
 
 ---
 
-## Installation
+## Installation (Python — for developers)
 
 ### Step 1: Install Python Dependencies
 
@@ -101,7 +130,7 @@ pip install -r requirements.txt
 
 ---
 
-## Usage
+## Usage (Python)
 
 ### 📡 Option 1: Bluetooth SPP (Simple — no WiFi needed)
 
@@ -110,12 +139,16 @@ Uses Bluetooth Serial to communicate. No WiFi setup required.
 **Firmware:** `esp32_firmware/esp32_bt_hid_bluetooth.ino.bak` (rename to `.ino` and flash)
 
 ```powershell
-$env:ESP32_PORT='COM8'; python App.py
+python App.py
 ```
 
-> **Latency:** ~10-50ms  
-> Find COM port in `Device Manager → Ports (COM & LPT)`  
-> Look for "Standard Serial over Bluetooth link" or similar
+> Auto-detects Bluetooth COM port automatically.  
+> **Latency:** ~10-50ms
+
+Or specify COM port manually:
+```powershell
+$env:ESP32_PORT='COM8'; python App.py
+```
 
 ---
 
@@ -145,6 +178,8 @@ $env:ESP32_HOST='192.168.x.x'; python App.py
 | `ESP32_PORT` | Bluetooth | COM port for SPP connection | `COM8` |
 | `ESP32_HOST` | WiFi | ESP32's IP address | `192.168.1.100` |
 | `ESP32_TCP_PORT` | WiFi | TCP port (default: 8266) | `8266` |
+
+> 💡 For the .exe version, you don't need to set environment variables — the app will prompt for the IP via GUI or read from `esp32_config.json` automatically.
 
 ---
 
@@ -183,6 +218,7 @@ $env:ESP32_PORT='COM8'; python test_esp32.py
 ```
 Mirror-Dungeon-Bot/
 ├── App.py                          # Main entry point
+├── esp32_config.json               # Saved ESP32 IP (auto-generated, user-specific)
 ├── esp32_firmware/
 │   └── esp32_bt_hid.ino            # ESP32 firmware (WiFi + BLE HID)
 ├── source/utils/
@@ -211,7 +247,9 @@ Mirror-Dungeon-Bot/
 | Problem | Solution |
 |---|---|
 | `Cannot open COM8` | Close other apps using the port, re-pair Bluetooth |
-| `ESP32 not found` | Check `ESP32_PORT` or `ESP32_HOST` env var |
+| ESP32 not found (Bluetooth) | Ensure ESP32 is paired, try re-pairing |
+| ESP32 not found (WiFi) | Verify IP address, ensure ESP32 is on, same WiFi network |
+| Connection Failed dialog | Check IP is correct, ESP32 is powered on, try Retry |
 | `NOCONN` in logs | BLE HID not paired — re-pair in Windows Bluetooth settings |
 | Bot clicks wrong spot | Verify 1920×1080 resolution, ensure window is not scaled |
 | Keys not registering | Ensure BLE device is paired as HID (not just Bluetooth audio) |
@@ -238,6 +276,7 @@ The following changes were made (2026):
 - Replaced software-emulated input (Interception driver / Logitech DLL) with **ESP32 BLE HID**
 - Added ESP32 firmware (`esp32_firmware/esp32_bt_hid.ino`) for BLE HID mouse + keyboard
 - Added WiFi TCP communication bridge (`esp32_bridge.py`)
+- Added GUI WiFi IP input dialog for .exe distribution
 - Replaced mouse movement from relative DLL moves to `SetCursorPos` (Windows API)
 - Removed Linux/X11 support (Windows-only fork)
 - Removed Logitech bridge dependency

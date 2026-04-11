@@ -1,4 +1,6 @@
 from .utils import *
+from .run_bridge import retry_bridge
+from source.utils.bridge.esp32_bridge import save_config_host, _load_config_host
 import os
 import platform
 
@@ -6,10 +8,6 @@ LEGACY_DRIVER_PATHS = [
     r"C:\Windows\System32\drivers\keyboard.sys",
     r"C:\Windows\System32\drivers\mouse.sys",
 ]
-
-
-DISCORD_URL = os.environ.get("CHARGEGRINDER_DISCORD_URL", "https://discord.gg/zQ9AnUkf")
-CONTACT = "@walpth"
 
 
 def _get_existing_legacy_driver_paths():
@@ -49,32 +47,67 @@ def ensure_interception_driver(app_parent=None):
     return False
 
 
-def prompt_third_party_software(app_parent=None):
-    msg = QMessageBox(app_parent)
-    msg.setIcon(QMessageBox.Icon.Critical)
-    msg.setWindowTitle("ESP32 Connection Required")
-    msg.setText("ESP32 hardware was not detected or failed to connect.")
-    msg.setInformativeText(
-        "Please ensure your ESP32 is flashed correctly, powered on, and paired via Bluetooth (or WiFi host is set).\n\n"
-        "If you need help, please check out the Discord server. "
-        "If the invite link is expired, contact me directly.\n\n"
-        f"Discord: {DISCORD_URL}\n"
-        f"Contact: {CONTACT}\n\n"
-        "Open the Discord link now?"
-    )
-    msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+def prompt_esp32_host(app_parent=None):
+    """Show a dialog asking for ESP32 IP address, try to connect, and save on success.
+    Returns True if connected successfully, False if user cancelled.
+    """
+    saved_host = os.environ.get("ESP32_HOST") or _load_config_host() or ""
 
-    if msg.exec() == QMessageBox.StandardButton.Yes:
-        try:
-            webbrowser.open(DISCORD_URL)
-        except Exception:
+    while True:
+        from PySide6.QtWidgets import QInputDialog
+
+        ip, ok = QInputDialog.getText(
+            app_parent,
+            "ESP32 WiFi Connection",
+            "ESP32 not found via Bluetooth.\n\n"
+            "Enter ESP32 IP Address to connect via WiFi:",
+            text=saved_host,
+        )
+
+        if not ok:
+            # User pressed Cancel
+            return False
+
+        ip = ip.strip()
+        if not ip:
             QMessageBox.warning(
                 app_parent,
-                "Open Browser Failed",
-                "Could not open the Discord link automatically.\n\n"
-                f"Please open it manually: {DISCORD_URL}\n"
-                f"If expired, contact: {CONTACT}",
+                "Invalid Input",
+                "Please enter a valid IP address.",
             )
+            continue
+
+        # Try connecting with the entered IP
+        msg = QMessageBox(app_parent)
+        msg.setIcon(QMessageBox.Icon.Information)
+        msg.setWindowTitle("Connecting...")
+        msg.setText(f"Trying to connect to {ip}...")
+        msg.setStandardButtons(QMessageBox.StandardButton.NoButton)
+        msg.show()
+        QApplication.processEvents()
+
+        success = retry_bridge(host=ip)
+        msg.close()
+
+        if success:
+            # Save the IP for next time
+            save_config_host(ip)
+            return True
+        else:
+            ret = QMessageBox.warning(
+                app_parent,
+                "Connection Failed",
+                f"Could not connect to ESP32 at {ip}.\n\n"
+                "Please check:\n"
+                "• ESP32 is powered on\n"
+                "• ESP32 is on the same WiFi network\n"
+                "• IP address is correct\n\n"
+                "Try again?",
+                QMessageBox.StandardButton.Retry | QMessageBox.StandardButton.Cancel,
+            )
+            if ret == QMessageBox.StandardButton.Cancel:
+                return False
+            saved_host = ip  # Keep the IP for retry
 
 
 def check_windows(app_parent=None):
@@ -85,6 +118,6 @@ def check_windows(app_parent=None):
         return False
     
     if RAISE_ERROR:
-        prompt_third_party_software(app_parent=app_parent)
-        return False
+        if not prompt_esp32_host(app_parent=app_parent):
+            return False
     return True
