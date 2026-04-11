@@ -7,7 +7,7 @@
  * Library: ESP32-BLE-Combo by blackketter
  * Board:   ESP32 Dev Module, Partition: Huge APP (3MB)
  *
- * ⚡ WiFi TCP latency: ~1-5ms (vs BT SPP ~20ms)
+ * WiFi TCP latency: ~10-15ms (vs BT SPP ~20ms)
  */
 
 #include "soc/soc.h"

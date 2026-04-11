@@ -41,26 +41,72 @@ This fork replaces software-emulated input with real Bluetooth HID input via an 
 
 ---
 
-## Quick Start (.exe)
+## ESP32 Setup (Required for all users)
 
-Download the `.exe` from [Releases](https://github.com/AlexWalp/Mirror-Dungeon-Bot/releases/latest) and follow the steps below.
+### Step 1: Install Arduino IDE & Library
 
-### 📡 Option 1: Bluetooth SPP (Simple — no WiFi needed)
+1. Install [Arduino IDE](https://www.arduino.cc/en/software)
+2. Add ESP32 board support: `File → Preferences → Additional Board URLs`:
+   ```
+   https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+   ```
+3. Install **ESP32-BLE-Combo** library:
+   - Download from [GitHub](https://github.com/blackketter/ESP32-BLE-Combo)
+   - `Sketch → Include Library → Add .ZIP Library`
 
-1. Flash firmware: `esp32_bt_hid_bluetooth.ino`
-2. Pair ESP32 ("Activision") with Windows via Bluetooth
-3. **Run `App.exe`** — the app will auto-detect ESP32 via Bluetooth
-4. If ESP32 is found → the app launches immediately ✅
+### Step 2: Flash ESP32 Firmware
+
+Choose the firmware based on your connection mode:
+
+| Mode | Firmware File | Notes |
+|---|---|---|
+| **Bluetooth SPP** (Option 1) | `esp32_firmware/esp32_bt_hid_bluetooth.ino` | No WiFi config needed |
+| **WiFi TCP** (Option 2) ← Recommended | `esp32_firmware/esp32_bt_hid.ino` | Edit WiFi credentials first |
+
+**If using WiFi (Option 2),** edit WiFi credentials before flashing:
+```cpp
+const char* WIFI_SSID = "YOUR_WIFI_SSID";
+const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
+```
+
+Arduino IDE settings:
+- Board: **ESP32 Dev Module**
+- Partition Scheme: **Huge APP (3MB No OTA / 1MB SPIFFS)**
+- Upload Speed: **921600**
+
+Connect ESP32 via USB and click **Upload**.
+
+**If using WiFi,** check Arduino **Serial Monitor** for the IP address:
+```
+[WiFi] IP: 192.168.x.x
+```
+> Note this IP — you'll need it when running the app.
+
+### Step 3: Pair BLE HID with Windows
+
+1. After flashing, the ESP32 appears as **"Activision"** in Windows Bluetooth settings
+2. Go to `Settings → Bluetooth & devices → Add device`
+3. Pair as a Bluetooth HID device (mouse + keyboard)
+
+---
+
+## Usage (.exe)
+
+Download the `.exe` from [Releases](https://github.com/PhaiKub/Activision/releases/latest).  
+Make sure you have completed [ESP32 Setup](#esp32-setup-required-for-all-users) first.
+
+### Option 1: Bluetooth SPP (Simple — no WiFi needed)
+
+1. **Run `App.exe`** — the app will auto-detect ESP32 via Bluetooth
+2. If ESP32 is found → the app launches immediately ✅
 
 > No extra configuration needed. Just pair Bluetooth and run the .exe.
 
-### ⚡ Option 2: WiFi TCP (Faster — requires same network) ← **Recommended**
+### Option 2: WiFi TCP (Faster — requires same network) ← **Recommended**
 
-1. Flash firmware: `esp32_bt_hid.ino` (edit WiFi SSID/Password before flashing)
-2. Check the ESP32's IP from Arduino Serial Monitor, e.g. `192.168.1.241`
-3. **Run `App.exe`** — if Bluetooth is not found, an IP input dialog will appear
-4. Enter the ESP32's IP address → click OK → connected ✅
-5. The IP is saved to `esp32_config.json` — **no need to re-enter next time**
+1. **Run `App.exe`** — if Bluetooth is not found, an IP input dialog will appear
+2. Enter the ESP32's IP address (from Serial Monitor) → click OK → connected ✅
+3. The IP is saved to `esp32_config.json` — **no need to re-enter next time**
 
 > 💡 To change the IP later, edit `esp32_config.json` next to the .exe:
 > ```json
@@ -89,54 +135,15 @@ Run App.exe
 
 ---
 
-## Installation (Python — for developers)
+## Usage (Python — for developers)
 
-### Step 1: Install Python Dependencies
+### Install Python Dependencies
 
 ```
 pip install -r requirements.txt
 ```
 
-### Step 2: Install Arduino IDE & Library
-
-1. Install [Arduino IDE](https://www.arduino.cc/en/software)
-2. Add ESP32 board support: `File → Preferences → Additional Board URLs`:
-   ```
-   https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
-   ```
-3. Install **ESP32-BLE-Combo** library:
-   - Download from [GitHub](https://github.com/blackketter/ESP32-BLE-Combo)
-   - `Sketch → Include Library → Add .ZIP Library`
-
-### Step 3: Flash ESP32 Firmware
-
-1. Open `esp32_firmware/esp32_bt_hid.ino` in Arduino IDE
-2. **If using WiFi (Option 2):** edit WiFi credentials:
-   ```cpp
-   const char* WIFI_SSID = "YOUR_WIFI_SSID";
-   const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
-   ```
-3. Arduino IDE settings:
-   - Board: **ESP32 Dev Module**
-   - Partition Scheme: **Huge APP (3MB No OTA / 1MB SPIFFS)**
-   - Upload Speed: **921600**
-4. Connect ESP32 via USB and click **Upload**
-
-### Step 4: Pair BLE HID with Windows
-
-1. After flashing, the ESP32 appears as **"Activision"** in Windows Bluetooth settings
-2. Go to `Settings → Bluetooth & devices → Add device`
-3. Pair as a Bluetooth HID device (mouse + keyboard)
-
----
-
-## Usage (Python)
-
-### 📡 Option 1: Bluetooth SPP (Simple — no WiFi needed)
-
-Uses Bluetooth Serial to communicate. No WiFi setup required.
-
-**Firmware:** `esp32_firmware/esp32_bt_hid_bluetooth.ino` (rename to `.ino` and flash)
+### Option 1: Bluetooth SPP
 
 ```powershell
 python App.py
@@ -150,18 +157,7 @@ Or specify COM port manually:
 $env:ESP32_PORT='COM8'; python App.py
 ```
 
----
-
-### ⚡ Option 2: WiFi TCP (Faster — requires same network) ← **Recommended**
-
-Uses WiFi TCP for lower latency. ESP32 and PC must be on the same network.
-
-**Firmware:** `esp32_firmware/esp32_bt_hid.ino` (default, already included)
-
-After flashing with WiFi credentials, check Arduino **Serial Monitor** for:
-```
-[WiFi] IP: 192.168.x.x
-```
+### Option 2: WiFi TCP ← **Recommended**
 
 ```powershell
 $env:ESP32_HOST='192.168.x.x'; python App.py
