@@ -175,7 +175,7 @@ $env:ESP32_HOST='192.168.x.x'; python App.py
 | `ESP32_HOST` | WiFi | ESP32's IP address | `192.168.1.100` |
 | `ESP32_TCP_PORT` | WiFi | TCP port (default: 8266) | `8266` |
 
-> 💡 For the .exe version, you don't need to set environment variables — the app will prompt for the IP via GUI or read from `esp32_config.json` automatically.
+> 💡 For the .exe version, you don't need to set environment variables — the app will prompt for the IP via GUI or read from `esp32_config.json` automatically. --I think this function still has some problems.
 
 ---
 
