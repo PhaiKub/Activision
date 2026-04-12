@@ -1,6 +1,7 @@
 __pycache__
 venv
 build
+PyPI_package
 dist
 AppDir
 data

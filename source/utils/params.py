@@ -1,6 +1,6 @@
 import threading
 
-V = "3.3.0"
+V = "1.0.0"
 LIMBUS_NAME = "LimbusCompany"
 
 SELECTED = ["YISANG", "DONQUIXOTE" , "ISHMAEL", "RODION", "SINCLAIR", "GREGOR"]

@@ -19,7 +19,7 @@ def ensure_interception_driver(app_parent=None):
     if not existing:
         return True
 
-    driver_download_url = "https://github.com/AlexWalp/Mirror-Dungeon-Bot/releases/tag/delete-interception"
+    driver_download_url = "https://github.com/PhaiKub/Activision/releases/tag/delete-interception"
 
     msg = QMessageBox(app_parent)
     msg.setIcon(QMessageBox.Icon.Warning)
