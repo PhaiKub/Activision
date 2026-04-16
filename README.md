@@ -1,6 +1,6 @@
-# Mirror Dungeon Bot — ESP32 BLE HID Edition
+# Charge-Grinder — ESP32 BLE HID Edition
 
-> **Fork of [AlexWalp/Mirror-Dungeon-Bot](https://github.com/AlexWalp/Mirror-Dungeon-Bot)**  
+> **Fork of [Walpth/Charge-Grinder](https://github.com/Walpth/Charge-Grinder)**  
 > Modified to use **ESP32 BLE HID** for hardware-level mouse & keyboard input
 
 A Limbus Company bot that grinds Mirror Dungeon automatically.  
@@ -266,7 +266,7 @@ the Free Software Foundation, either version 3 of the License, or
 
 ### Modifications from Original
 
-This is a modified version of [AlexWalp/Mirror-Dungeon-Bot](https://github.com/AlexWalp/Mirror-Dungeon-Bot).  
+This is a modified version of [Walpth/Charge-Grinder](https://github.com/Walpth/Charge-Grinder).  
 The following changes were made (2026):
 
 - Replaced software-emulated input (Interception driver / Logitech DLL) with **ESP32 BLE HID**
@@ -281,7 +281,7 @@ The following changes were made (2026):
 
 ## Credits
 
-- **Original bot:** [AlexWalp/Mirror-Dungeon-Bot](https://github.com/AlexWalp/Mirror-Dungeon-Bot)
+- **Original bot:** [Walpth/Charge-Grinder](https://github.com/Walpth/Charge-Grinder)
 - **BLE HID library:** [ESP32-BLE-Combo](https://github.com/blackketter/ESP32-BLE-Combo) by blackketter
 - **ESP32 HID integration:** This fork
 
