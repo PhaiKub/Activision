@@ -210,11 +210,29 @@ def _fail_safe_check():
         raise PauseException(name)
 
 
+def _sync_hid_position(target_x, target_y):
+    """Sync ESP32 BLE HID with actual cursor position.
+
+    After SetCursorPos, the game may not register the new position because
+    it reads from raw BLE HID input. This sends a tiny nudge to generate
+    a real HID input event, which forces the game engine to read the
+    current absolute cursor position.
+    """
+    # Send a tiny nudge (+1 then -1) to force a BLE HID report.
+    # We must wait for the TCP send to complete, so we use a small sleep.
+    # The game intercepts the physical mouse move and syncs its UI cursor.
+    _get_bridge().mouse_move_relative(1, 0)
+    _get_bridge().mouse_move_relative(-1, 0)
+    time.sleep(0.01)
+    
+    # Ensure the absolute cursor is exactly on target as the final step
+    ctypes.windll.user32.SetCursorPos(int(target_x), int(target_y))
+
+
 def moveTo(x, y, duration=0.0, tween=easeInOutQuad, delay=0.09, humanize=True,
            mouse_velocity=0.65, noise=2.6, offset_x=0, offset_y=0):
     _fail_safe_check()
 
-    # Smooth cursor movement via SetCursorPos + BLE HID click
     start_x, start_y = get_position()
     total_dx = x - start_x
     total_dy = y - start_y
@@ -232,8 +250,14 @@ def moveTo(x, y, duration=0.0, tween=easeInOutQuad, delay=0.09, humanize=True,
             ctypes.windll.user32.SetCursorPos(cur_x, cur_y)
             time.sleep(step_delay)
 
+    # Final position set
     ctypes.windll.user32.SetCursorPos(int(x), int(y))
-    time.sleep(0.1)  # settle — game needs time to register cursor
+    time.sleep(0.03)
+
+    # Sync BLE HID with actual cursor position so game registers it
+    _sync_hid_position(int(x), int(y))
+
+    time.sleep(0.07)  # settle — game needs time to register cursor
     _fail_safe_check()
 
 
