@@ -9,7 +9,6 @@ import threading
 import source.utils.params as p
 from source.utils.profiles import get_macro_profile, maybe_rhythm_jitter, randomize_with_profile
 
-from source.utils.bridge.esp32_bridge import ESP32Bridge as Bridge
 
 
 _bridge = None
@@ -22,7 +21,12 @@ def _get_bridge():
     with _bridge_lock:
         if _bridge is None:
             try:
-                _bridge = Bridge(auto_open=True)
+                if p.BRIDGE_MODE == "esp32s3":
+                    from source.utils.bridge.esp32s3_bridge import ESP32S3Bridge
+                    _bridge = ESP32S3Bridge(auto_open=True)
+                else:
+                    from source.utils.bridge.esp32_bridge import ESP32Bridge
+                    _bridge = ESP32Bridge(auto_open=True)
                 _bridge_init_error = None
             except Exception as exc:
                 _bridge_init_error = RuntimeError(f"Bridge initialization failed: {exc}")
@@ -211,14 +215,17 @@ def _fail_safe_check():
 
 
 def _sync_hid_position(target_x, target_y):
-    """Sync ESP32 BLE HID with actual cursor position.
+    """Sync HID device with actual cursor position.
 
     After SetCursorPos, the game may not register the new position because
-    it reads from raw BLE HID input. This sends a tiny nudge to generate
+    it reads from raw HID input. This sends a tiny nudge to generate
     a real HID input event, which forces the game engine to read the
     current absolute cursor position.
+
+    Works for both ESP32 (BLE HID) and ESP32-S3 (USB HID) since both
+    are physical HID devices that the game reads raw input from.
     """
-    # Send a tiny nudge (+1 then -1) to force a BLE HID report.
+    # Send a tiny nudge (+1 then -1) to force a HID report.
     # We must wait for the TCP send to complete, so we use a small sleep.
     # The game intercepts the physical mouse move and syncs its UI cursor.
     _get_bridge().mouse_move_relative(1, 0)

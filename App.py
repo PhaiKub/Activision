@@ -1479,8 +1479,87 @@ class ScrollableMyApp(QMainWindow):
             return self.base_height
 
 
+
+def _config_path():
+    """Path to esp32_config.json next to the script / executable."""
+    if "__compiled__" in dir():
+        base = os.path.dirname(os.path.abspath(sys.executable))
+    else:
+        base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, "esp32_config.json")
+
+
+def _load_saved_mode():
+    """Load saved BRIDGE_MODE from esp32_config.json."""
+    path = _config_path()
+    if os.path.exists(path):
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+            return data.get("BRIDGE_MODE", "esp32")
+        except Exception:
+            pass
+    return "esp32"
+
+
+def _save_mode(mode):
+    """Save BRIDGE_MODE to esp32_config.json."""
+    path = _config_path()
+    data = {}
+    if os.path.exists(path):
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+        except Exception:
+            pass
+    data["BRIDGE_MODE"] = mode
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+def select_bridge_mode():
+    """Show a dialog for the user to pick ESP32 or ESP32-S3 mode.
+
+    Returns "esp32" or "esp32s3".
+    """
+    saved = _load_saved_mode()
+
+    msg = QMessageBox()
+    msg.setWindowTitle("Select Input Device")
+    msg.setIcon(QMessageBox.Icon.Question)
+    msg.setText("เลือกอุปกรณ์ HID ที่ใช้เชื่อมต่อ:")
+    msg.setInformativeText(
+        "ESP32 — BLE HID (WiFi / Bluetooth)\n"
+        "ESP32-S3 — USB HID (bridge.dll)"
+    )
+
+    esp32_btn = msg.addButton("ESP32 (BLE)", QMessageBox.ButtonRole.AcceptRole)
+    esp32s3_btn = msg.addButton("ESP32-S3 (USB)", QMessageBox.ButtonRole.AcceptRole)
+
+    if saved == "esp32s3":
+        msg.setDefaultButton(esp32s3_btn)
+    else:
+        msg.setDefaultButton(esp32_btn)
+
+    msg.exec()
+
+    if msg.clickedButton() == esp32s3_btn:
+        return "esp32s3"
+    return "esp32"
+
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+
+    # --- Bridge mode selection ---
+    mode = select_bridge_mode()
+    p.BRIDGE_MODE = mode
+    _save_mode(mode)
+
+    # --- Initialize bridge after mode is set ---
+    from source_app.run_bridge import init_bridge
+    init_bridge()
+
     window = ScrollableMyApp()
     window.show()
     sys.exit(app.exec())
