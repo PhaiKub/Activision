@@ -1,8 +1,18 @@
 from .utils import *
+from . import run_bridge as _run_bridge
 from .run_bridge import retry_bridge
-from source.utils.bridge.esp32_bridge import save_config_host, _load_config_host
+import source.utils.params as p
 import os
 import platform
+
+
+def _get_esp32_config_imports():
+    """Lazy import of ESP32 config helpers — only needed for ESP32 BLE mode."""
+    from source.utils.bridge.esp32_bridge import save_config_host, _load_config_host
+    return save_config_host, _load_config_host
+
+
+
 
 LEGACY_DRIVER_PATHS = [
     r"C:\Windows\System32\drivers\keyboard.sys",
@@ -51,6 +61,7 @@ def prompt_esp32_host(app_parent=None):
     """Show a dialog asking for ESP32 IP address, try to connect, and save on success.
     Returns True if connected successfully, False if user cancelled.
     """
+    save_config_host, _load_config_host = _get_esp32_config_imports()
     saved_host = os.environ.get("ESP32_HOST") or _load_config_host() or ""
 
     while True:
@@ -65,7 +76,6 @@ def prompt_esp32_host(app_parent=None):
         )
 
         if not ok:
-            # User pressed Cancel
             return False
 
         ip = ip.strip()
@@ -77,7 +87,6 @@ def prompt_esp32_host(app_parent=None):
             )
             continue
 
-        # Try connecting with the entered IP
         msg = QMessageBox(app_parent)
         msg.setIcon(QMessageBox.Icon.Information)
         msg.setWindowTitle("Connecting...")
@@ -90,7 +99,6 @@ def prompt_esp32_host(app_parent=None):
         msg.close()
 
         if success:
-            # Save the IP for next time
             save_config_host(ip)
             return True
         else:
@@ -107,7 +115,67 @@ def prompt_esp32_host(app_parent=None):
             )
             if ret == QMessageBox.StandardButton.Cancel:
                 return False
-            saved_host = ip  # Keep the IP for retry
+            saved_host = ip
+
+
+def prompt_esp32s3_port(app_parent=None):
+    """Show a dialog asking for ESP32-S3 COM port, try to connect, and save on success.
+    Returns True if connected successfully, False if user cancelled.
+    """
+    from source.utils.bridge.esp32s3_bridge import save_config_port, _load_config_port
+    saved_port = os.environ.get("ESP32S3_PORT") or _load_config_port() or ""
+
+    while True:
+        from PySide6.QtWidgets import QInputDialog
+
+        port, ok = QInputDialog.getText(
+            app_parent,
+            "ESP32-S3 USB Connection",
+            "ESP32-S3 USB device not found automatically.\n\n"
+            "Enter COM port (e.g. COM3, COM12):",
+            text=saved_port,
+        )
+
+        if not ok:
+            return False
+
+        port = port.strip().upper()
+        if not port:
+            QMessageBox.warning(
+                app_parent,
+                "Invalid Input",
+                "Please enter a valid COM port (e.g. COM3).",
+            )
+            continue
+
+        msg = QMessageBox(app_parent)
+        msg.setIcon(QMessageBox.Icon.Information)
+        msg.setWindowTitle("Connecting...")
+        msg.setText(f"Trying to connect to ESP32-S3 on {port}...")
+        msg.setStandardButtons(QMessageBox.StandardButton.NoButton)
+        msg.show()
+        QApplication.processEvents()
+
+        success = retry_bridge(port=port)
+        msg.close()
+
+        if success:
+            save_config_port(port)
+            return True
+        else:
+            ret = QMessageBox.warning(
+                app_parent,
+                "Connection Failed",
+                f"Could not connect to ESP32-S3 on {port}.\n\n"
+                "Please check:\n"
+                "- ESP32-S3 is connected via USB cable\n"
+                "- Correct COM port number\n\n"
+                "Try again?",
+                QMessageBox.StandardButton.Retry | QMessageBox.StandardButton.Cancel,
+            )
+            if ret == QMessageBox.StandardButton.Cancel:
+                return False
+            saved_port = port
 
 
 def check_windows(app_parent=None):
@@ -117,7 +185,11 @@ def check_windows(app_parent=None):
     if not ensure_interception_driver(app_parent=app_parent):
         return False
     
-    if RAISE_ERROR:
-        if not prompt_esp32_host(app_parent=app_parent):
-            return False
+    if _run_bridge.RAISE_ERROR:
+        if p.BRIDGE_MODE == "esp32s3":
+            if not prompt_esp32s3_port(app_parent=app_parent):
+                return False
+        else:
+            if not prompt_esp32_host(app_parent=app_parent):
+                return False
     return True

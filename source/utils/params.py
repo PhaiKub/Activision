@@ -46,3 +46,6 @@ MOVE_ANIMATION = False
 # Macro behavior configuration.
 MACRO_PROFILE = "SAFE"
 MACRO_RHYTHM = True
+
+# Bridge mode: "esp32" = BLE HID (WiFi/Bluetooth), "esp32s3" = USB HID (bridge.dll)
+BRIDGE_MODE = "esp32"
