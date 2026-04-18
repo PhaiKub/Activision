@@ -1,5 +1,4 @@
 <div align="center">
-  <img src="app.png" alt="Charge-Grinder Logo" width="200" />
   <h1>Charge-Grinder — ESP32 Hardware Edition</h1>
   <p><b>An advanced Mirror Dungeon farming bot for Limbus Company.</b></p>
   <p><i>Forked and heavily modified from <a href="https://github.com/Walpth/Charge-Grinder">Walpth/Charge-Grinder</a></i></p>
