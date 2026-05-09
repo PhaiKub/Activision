@@ -171,13 +171,22 @@ def _human_delay(min_delay=0.01, max_delay=0.03):
 
 def mouseDown(button='left', delay=0.16):
     _fail_safe_check()
-    _get_bridge().mouse_press(button=button)
+    try:
+        _get_bridge().mouse_press(button=button)
+    except Exception as e:
+        print(f"[click] mouseDown failed: {e}")
     time.sleep(0.05)
     _fail_safe_check()
 
 def mouseUp(button='left', delay=0.16):
     _fail_safe_check()
-    _get_bridge().mouse_release(button=button)
+    for attempt in range(3):
+        try:
+            _get_bridge().mouse_release(button=button)
+            break
+        except Exception as e:
+            print(f"[click] mouseUp failed (attempt {attempt + 1}): {e}")
+            time.sleep(0.05)
     time.sleep(0.05)
     _fail_safe_check()
 

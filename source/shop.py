@@ -317,9 +317,11 @@ def fuse_selected():
     wait_while_condition(lambda: not now.button("Confirm.2"), lambda: win_click(1197, 876) if now.button("fuse") else None, timer=1.5)
     wait_while_condition(lambda: not now.button("Confirm"), lambda: gui.press("space") if now.button("Confirm.2") else None, timer=1.5)
     connection()
-    gui.press("space")
-    wait_while_condition(lambda: loc.button("Confirm", wait=0.5))
-    time.sleep(0.2)
+    wait_while_condition(
+        lambda: loc.button("Confirm", wait=0.5), 
+        lambda: gui.press("space"), 
+        interval=0.2
+    )
 
 def perform_clicks(to_click):
     if p.WISHMAKING and not now_rgb.button("wishmaking"):
@@ -758,7 +760,7 @@ def conf_gift():
     except RuntimeError:
         pass
     wait_while_condition(
-        condition=lambda: now.button("Confirm"),
+        condition=lambda: loc.button("Confirm", wait=0.5),
         action=lambda: gui.press("space")
     )
 
@@ -772,11 +774,11 @@ def update_shelf():
     return shop_shelf
 
 def filter_x_distance(points, x_tol=2, y_tol=25):
-    points = sorted(points, key=lambda p: p[0])
+    points = sorted(points, key=lambda pt: pt[0])
     result = []
-    for p in points:
-        if all(abs(p[0] - q[0]) >= x_tol or abs(p[1] - q[1]) > y_tol for q in result):
-            result.append(p)
+    for pt in points:
+        if all(abs(pt[0] - q[0]) >= x_tol or abs(pt[1] - q[1]) > y_tol for q in result):
+            result.append(pt)
     return result
 
 def get_shop(shop_shelf):

@@ -340,12 +340,29 @@ class ESP32S3Bridge:
         finally:
             try:
                 if self._serial:
+                    
                     self._serial.timeout = old_timeout
             except Exception:
                 pass
 
+    def _drain_buffer(self):
+        """Drain any pending responses from ESP32-S3 to prevent output buffer overflow.
+
+        The firmware sends 'OK\\n' for every command, but we use wait_ack=False
+        for speed. Without draining, the ESP32's serial output buffer fills up,
+        println() blocks, and the device stops processing new commands entirely.
+        """
+        if not self._serial or not self._serial.is_open:
+            return
+        try:
+            while self._serial.in_waiting > 0:
+                self._serial.read(self._serial.in_waiting)
+        except Exception:
+            pass
+
     def _send(self, cmd, wait_ack=False):
         with self._lock:
+            self._drain_buffer()
             self._send_raw(cmd)
             if wait_ack:
                 self._read_response(timeout=0.5)

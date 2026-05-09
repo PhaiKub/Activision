@@ -88,7 +88,7 @@ def directions(is_aligned=True):
     dir_reg = "directions_init" if not is_aligned else "directions"
     reg_xy = (624, 101) if is_aligned else (914, 0)
     for i, suffix in options.items():
-        if now.button(suffix, dir_reg, conf=0.85):
+        if now.button(suffix, dir_reg, conf=0.8):
             regions[i] = (reg_xy[0], reg_xy[1] + i * 275, 282, 275)
     return regions
 
@@ -248,23 +248,28 @@ def move():
 
     adjust = 0
     if len(regions) == 0:
+        print("Case 2: No directions are visible")
         gui.press("space")
         if enter():
             logging.info("Entering unknown node")
             return True
         return False
     elif len(regions) == 1:
+        print("Case 3: No node search, only one direction")
         region_idx = next(iter(regions.keys()))
         region = regions[region_idx]
         _loc = LocatePreset(image=screenshot(region=region), v_comp=v_list[region_idx], conf=0.8, wait=False)
         name = get_node_name(_loc, region)
         gui.press(keys_map.get(region_idx, "d"))
-        enter()
-        logging.info(f"Entering {name} {'fight'*(name!='Event' and name!='Shop')}")
-        return True
+        if enter():
+            logging.info(f"Entering {name} {'fight'*(name!='Event' and name!='Shop')}")
+            return True
+        return False
     elif all(k in regions for k in (0, 2)):
+        print("Case 4: No major adjustment needed for node search")
         position()
     else:
+        print("Case 5: Adjusting position for node search")
         inter_connect = get_connections(region=(1140, 230, 610, 370))
         adjust = check_connections(inter_connect)
         position(shift=adjust)

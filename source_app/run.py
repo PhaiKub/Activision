@@ -89,6 +89,7 @@ class BotWorker(QObject):
             logging.exception("Uncaught exception in BotWorker thread")  
             self.error.emit(str(e))
         finally:
+            self.stop_cache_thread()
             self.finished.emit()
 
     def start_cache_thread(self, teams, settings, hard):
@@ -102,3 +103,14 @@ class BotWorker(QObject):
         self.cache_thread.finished.connect(self.cache_thread.deleteLater)
 
         self.cache_thread.start()
+
+    def stop_cache_thread(self):
+        if not self.cache_thread:
+            return
+
+        if self.cache_thread.isRunning():
+            self.cache_thread.quit()
+            self.cache_thread.wait(3000)
+
+        self.cache_thread = None
+        self.cache_worker = None
