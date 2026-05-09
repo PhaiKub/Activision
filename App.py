@@ -29,6 +29,8 @@ class MyApp(QWidget):
         self.team_lux = self._day()
         self.team_lux_buttons = [self.team_lux, 3 + self._day(sin=True)]
         self.keywordless = {}
+        self.thread = None
+        self.worker = None
 
         self.load_settings()
         self._init_ui()
@@ -668,6 +670,8 @@ class MyApp(QWidget):
 
             'githubButton': CustomButton(self, {
                 'geometry': (615, 33, 35, 35),
+                'glow': Bot.APP_PTH['me'],
+                'glow_geometry': (610, 26, 47, 47),
                 'click_handler': lambda: webbrowser.open('https://github.com/PhaiKub/Activision')
             })
         }
@@ -830,9 +834,9 @@ class MyApp(QWidget):
                 button.setIcon(QIcon())
 
         if self.is_lux:
-            self.sinner_selections[self.team_lux + 7]
+            self.sinner_selections[self.team_lux + 7] = []
         else:
-            self.sinner_selections[self.team]
+            self.sinner_selections[self.team] = []
 
     def save_config(self):
         if len(self.selected_card_order) < 5:
@@ -1342,6 +1346,9 @@ class MyApp(QWidget):
         }
 
     def start(self):
+        if self.thread is not None and self.thread.isRunning():
+            return
+
         self.get_params()
         if not self.check_inputs() or not self.check_sinners():
             self.buttons['guide_icon'].trigger_glow_once()
@@ -1373,11 +1380,17 @@ class MyApp(QWidget):
         self.worker.finished.connect(self.thread.quit)
         self.worker.finished.connect(self.worker.deleteLater)
         self.thread.finished.connect(self.thread.deleteLater)
+        self.thread.finished.connect(self._on_worker_thread_finished)
 
         self.worker.error.connect(self.handle_bot_error)
         self.worker.warning.connect(self.handle_bot_warning)
 
         self.thread.start()
+
+    @pyqtSlot()
+    def _on_worker_thread_finished(self):
+        self.worker = None
+        self.thread = None
 
     @pyqtSlot()
     def to_pause(self):
@@ -1399,7 +1412,7 @@ class MyApp(QWidget):
         p.stop_event.set()
         p.pause_event.set()
 
-        if self.thread.isRunning():
+        if self.thread is not None and self.thread.isRunning():
             self.thread.quit()
             self.thread.wait()
         self.run.hide()

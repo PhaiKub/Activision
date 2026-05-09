@@ -140,6 +140,10 @@ class ESP32Bridge:
         self._lock = threading.Lock()
         self._opened = False
         self._recv_buf = b""
+        self._last_ok = time.time()
+        self._reconnect_lock = threading.Lock()
+        self._consecutive_fails = 0
+        self._MAX_FAILS = 3
         if auto_open:
             self.open()
 
@@ -303,11 +307,24 @@ class ESP32Bridge:
     def _send_raw(self, cmd):
         data = f"{cmd}\n".encode("utf-8")
         if self._mode == "wifi" and self._socket:
-            try: self._socket.sendall(data)
-            except: pass
+            try:
+                self._socket.sendall(data)
+                self._consecutive_fails = 0
+            except Exception as e:
+                self._consecutive_fails += 1
+                print(f"[ESP32Bridge] WiFi send failed ({self._consecutive_fails}): {e}")
+                if self._consecutive_fails >= self._MAX_FAILS:
+                    self._try_reconnect()
         elif self._mode == "bluetooth" and self._serial and self._serial.is_open:
-            self._serial.write(data)
-            self._serial.flush()
+            try:
+                self._serial.write(data)
+                self._serial.flush()
+                self._consecutive_fails = 0
+            except Exception as e:
+                self._consecutive_fails += 1
+                print(f"[ESP32Bridge] Bluetooth send failed ({self._consecutive_fails}): {e}")
+                if self._consecutive_fails >= self._MAX_FAILS:
+                    self._try_reconnect()
 
     def _read_response(self, timeout=0.5):
         if self._mode == "wifi":
@@ -354,7 +371,37 @@ class ESP32Bridge:
         with self._lock:
             self._send_raw(cmd)
             if wait_ack:
-                self._read_response(timeout=0.5)
+                resp = self._read_response(timeout=0.5)
+                if resp == "NOCONN":
+                    print("[ESP32Bridge] BLE HID disconnected from host!")
+
+    def _try_reconnect(self):
+        """Attempt to reconnect after consecutive send failures."""
+        with self._reconnect_lock:
+            print("[ESP32Bridge] Attempting reconnect...")
+            self.close()
+            self._opened = False
+            for attempt in range(3):
+                try:
+                    time.sleep(1)
+                    self.open()
+                    print(f"[ESP32Bridge] Reconnected on attempt {attempt + 1}")
+                    self._consecutive_fails = 0
+                    return True
+                except Exception as e:
+                    print(f"[ESP32Bridge] Reconnect attempt {attempt + 1} failed: {e}")
+            print("[ESP32Bridge] All reconnect attempts failed")
+            return False
+
+    def health_check(self):
+        """Send a ping to verify the connection is alive."""
+        with self._lock:
+            self._send_raw("P")
+            resp = self._read_response(timeout=1.0)
+            if "PONG" in resp:
+                self._last_ok = time.time()
+                return True
+            return False
 
     @staticmethod
     def _key_code(key):
