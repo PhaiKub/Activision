@@ -77,7 +77,7 @@ def get_gift(image, owned_x):
             if (coord := LocateRGB.locate(PTH[str(gift)], image=image, region=REG["EGO"], conf=0.84, comp=0.94)) \
             and far_from_owned(gui.center(coord), owned_x):
                 point = gui.center(coord)
-                win_click(point)
+                win_click(point, tsize=(150, 160))
                 return rectangle(image, (int(point[0]-100), 0), (int(point[0]+100), 110), (0, 0, 0), -1)
 
     ego_aff = find_ego_affinity(owned_x, image) # (lvl, coord)
@@ -85,14 +85,14 @@ def get_gift(image, owned_x):
     for lvl in range(4, 0, -1):
         if ego_aff and lvl == ego_aff[0]:
             point = ego_aff[1]
-            win_click(point)
+            win_click(point, tsize=(150, 230))
             return rectangle(image, (int(point[0]-100), 0), (int(point[0]+100), 110), (0, 0, 0), -1)
         elif boxes := LocateRGB.locate_all(PTH[f"tier{lvl}"], image=image, region=REG["EGO"], method=cv2.TM_SQDIFF_NORMED, threshold=30, conf=0.85):
             for box in boxes:
                 point = gui.center(box)
                 if far_from_owned(point, owned_x):
                     break
-            win_click(point)
+            win_click(point, tsize=(150, 130))
             return rectangle(image, (int(point[0]-100), 0), (int(point[0]+100), 110), (0, 0, 0), -1)
     return image
 
@@ -133,7 +133,7 @@ def get_trial(image, trials_image):
     print(res)
     if len(res) == 1:
         point = gui.center(res[0])
-        win_click(point[0], 600)
+        win_click(point[0], 600, tsize=(150, 170))
         return rectangle(image, (int(point[0]-140), 0), (int(point[0]+140), 110), (0, 0, 0), -1), \
                rectangle(trials_image, (int(point[0]-140), 0), (int(point[0]+140), 52), (0, 0, 0), -1)
     elif len(res) > 1:
@@ -153,6 +153,7 @@ def grab_EGO():
     retuns whether or not the EGO gift(s) is/are selected
     '''
     if not now.button("EGObin"): return False
+    now_click.button("Cancel")
     time.sleep(0.8)
     print("grab ego check")
     owned_x = [p[0] + p[2] for p in LocateRGB.locate_all(PTH["Owned"], region=REG["Owned"])]
@@ -164,7 +165,7 @@ def grab_EGO():
         cycle = 2
         if p.EXTREME:
             trials = screenshot(region=REG["buffs"])
-    elif p.BUFF[9]:
+    elif p.BUFF[9] or p.BUFF[5]:
         for i in [2, 3]:
             if now.button(f"select{i}", "selectCount"):
                 cycle = i

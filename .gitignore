@@ -15,10 +15,15 @@ convert_ego.py
 os_wayland_backend.py
 input_api
 *.pyc
+*.exe
+*.spec
 .env
 esp32_config.json
 .vscode/
 .idea/
+.kiro/
+Source_Code/
 Source_Code.zip
 esp32_firmware.rar
+esp32_firmware.zip
 Releases.zip

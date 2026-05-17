@@ -1,6 +1,5 @@
 import threading
 
-V = "2.0.1"
 LIMBUS_NAME = "LimbusCompany"
 
 SELECTED = ["YISANG", "DONQUIXOTE" , "ISHMAEL", "RODION", "SINCLAIR", "GREGOR"]
@@ -46,6 +45,7 @@ MOVE_ANIMATION = False
 # Macro behavior configuration.
 MACRO_PROFILE = "SAFE"
 MACRO_RHYTHM = True
+KEY_ERRORS = 0
 
 # Bridge mode: "esp32" = BLE HID (WiFi/Bluetooth), "esp32s3" = USB HID (bridge.dll)
 BRIDGE_MODE = "esp32"

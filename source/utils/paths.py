@@ -12,6 +12,19 @@ def _runtime_base_path():
 
 BASE_PATH = _runtime_base_path()
 
+VERSION_FILE = os.path.join(BASE_PATH, "version")
+
+
+def _read_app_version(default="0.0.0"):
+    try:
+        with open(VERSION_FILE, "r", encoding="utf-8") as fh:
+            return fh.read().strip() or default
+    except OSError:
+        return default
+
+
+APP_VERSION = _read_app_version()
+
 
 ASSETS_DIR = os.path.join(BASE_PATH,"ImageAssets/UI")
 
@@ -34,9 +47,9 @@ APP_DIR = os.path.join(BASE_PATH,"ImageAssets/AppUI")
 APP_PTH = collect_png_paths(APP_DIR)
 
 if platform.system() == "Windows":
-    ICON = os.path.join(BASE_PATH,"app_icon.ico")
+    ICON = os.path.join(BASE_PATH,"ImageAssets","app_icon.ico")
 else:
-    ICON = os.path.join(BASE_PATH,"app.png")
+    ICON = os.path.join(BASE_PATH,"ImageAssets","app.png")
 
 # regions for some buttons
 REG = {
@@ -123,8 +136,8 @@ REG = {
     "alldead"        : ( 261, 1019, 1391,   41),
     "suicide"        : ( 756,  233,  437,  121),
     "forfeit"        : ( 740,  547,  151,  208),
-    "directions"     : ( 523,  130,  155,  800),
-    "directions_init": ( 813,  130,  155,  800),
+    "directions"     : ( 508,  130,  200,  800),
+    "directions_init": ( 813,  130,  200,  800),
     "secretEncounter": (1595,  767,  183,  100),
     "skipEncounter"  : (1379,  763,  195,  110),
 
@@ -281,6 +294,8 @@ PACKS = {
     'WARPExpressBokGak'           : ((), (4, 5)),
     'TheDuskofAmber'              : ((4, 5), (4, 5)),
     'LCBRegularCheckupBokGak'     : ((), (4, 5)),
+    'TwiningThreads'              : ((5,), (5,)),
+    'NocturnalSweepingBokGak'     : ((), (4, 5)),
     'SlicersDicers'               : ((5,), (4,)),
     'TobeCleaved'                 : ((2, 3), (1, 2)),
     'PiercersPenetrators'         : ((5,), (4,)),
@@ -332,6 +347,17 @@ PACKS = {
     'BeautifulVoice'              : ((), (15,)),
     'TheGreenDawn'                : ((), (15,)),
     'CertainLibrary'              : ((), (15,)),
+    'CodePurple'                  : ((), (15,)),
+    'BearersofWeight'             : ((), (15,)),
+    'Line1Madness'                : ((), (15,)),
+    'BlessedCarnival'             : ((), (15,)),
+    'FairyTale'                   : ((), (15,)),
+    'IchthyicOdor'                : ((), (15,)),
+    'CompleteExtermination'       : ((), (15,)), 
+    'LaManchaMaster'              : ((), (15,)),
+    'Chachihu'                    : ((), (15,)),
+    'MidspringDream2'             : ((), (15,)),
+    'The_BE'                      : ((), (3, 4, 5))
 }
 
 def packs_to_floors(packs, hard=False):
