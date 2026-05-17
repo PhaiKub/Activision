@@ -1,16 +1,14 @@
 <div align="center">
-  <h1>Charge-Grinder — ESP32 Hardware Edition</h1>
+  <h1>Charge-Grinder — ESP32-S3 USB HID Edition</h1>
   <p><b>An advanced Mirror Dungeon farming bot for Limbus Company.</b></p>
   <p><i>Forked and heavily modified from <a href="https://github.com/Walpth/Charge-Grinder">Walpth/Charge-Grinder</a></i></p>
 </div>
 
 ---
 
-
-
 ## 🛠️ Bot Features (Software)
 
-- **Complete Automation:** Fully autonomus Mirror Dungeon Normal/Hard modes and Luxcavation farming.
+- **Complete Automation:** Fully autonomous Mirror Dungeon Normal/Hard modes and Luxcavation farming.
 - **Dynamic Teams:** Setup custom team synergies, affinity priorities, and win-rates.
 - **Human-Like Profiles:** Integrated profile jittering, cursor curves, and rhythm variance (`profiles.py`) so your inputs never look perfectly robotic.
 - **GUI Interface:** Written in PySide6 (`App.py`) with intuitive setup flows and settings management.
@@ -18,9 +16,9 @@
 
 ---
 
-## 🥇 Option A: Setup ESP32-S3 (USB HID - Recommended)
+## 🥇 Setup ESP32-S3 (USB HID)
 
-*Use this if you have an ESP32-S3 board. It requires only one cable for power, data, and bot commands.*
+*This project supports only ESP32-S3 boards. One USB cable handles power, data, and bot commands.*
 
 ### 1. Flash the Firmware
 1. Open `esp32_firmware/esp32s3_usb_hid.ino` in Arduino IDE.
@@ -30,7 +28,7 @@
    - **USB CDC On Boot:** `Enabled` *(Critical for COM port communication)*
 3. Hit **Upload**.
 
-### 2. LED Behavior (ESP32-S3)
+### 2. LED Behavior
 The onboard WS2812 RGB LED (Pin 48) indicates connection status:
 * 🟡 **Yellow blink:** Booting / Initializing USB Drivers
 * 🟣 **Purple solid:** Ready (Waiting for Bot to connect)
@@ -38,26 +36,7 @@ The onboard WS2812 RGB LED (Pin 48) indicates connection status:
 * 🟢 **Green blink:** Idle (Python script disconnected / Grinding finished)
 * 🔴 **Red flash:** Error (Received an invalid command block)
 
----
-
-## 🥈 Option B: Setup Standard ESP32 (WiFi / Bluetooth)
-
-*Use this if you have a traditional ESP32 WROOM-32/WROVER board lacking native USB output.*
-
-### 1. Install Arduino BLE Library
-1. Install **ESP32-BLE-Combo** library:
-   - Download from [GitHub](https://github.com/blackketter/ESP32-BLE-Combo)
-   - `Sketch → Include Library → Add .ZIP Library`
-
-### 2. Flash the Firmware
-Choose the firmware based on your connection mode:
-
-- **WiFi TCP mode (Recommended):** Open `esp32_firmware/esp32_bt_hid.ino`. Edit the `WIFI_SSID` and `WIFI_PASS` variables to match your home network, then upload to your ESP32. (Check your Arduino Serial Monitor after flashing to find your ESP32's assigned IP address).
-- **Bluetooth SPP mode:** Open `esp32_firmware/esp32_bt_hid_bluetooth.ino` and upload it. 
-
-### 3. Pair BLE HID to Windows
-1. Open Windows Settings → `Bluetooth & devices` → `Add device`.
-2. Pair the newly found device named **"Activision"** as a Bluetooth keyboard/mouse.
+> **Note:** Standard ESP32 boards (BLE / WiFi / Bluetooth SPP) are no longer supported. If you have older hardware, use the legacy v2.x release branch.
 
 ---
 
@@ -65,13 +44,10 @@ Choose the firmware based on your connection mode:
 
 ### For Standard Users
 1. Download the latest compiled `.exe` from the [Releases page](https://github.com/PhaiKub/Activision/releases/latest).
-2. Connect your ESP32-S3 (via USB) or your ESP32 (via WiFi/Bluetooth).
+2. Connect your ESP32-S3 via USB.
 3. Keep Limbus Company running in the foreground (English, 16:9 ratio, 1920x1080 strongly recommended).
 4. Run `App.exe`.
-5. The application will auto-detect your ESP32. 
-   - *If using ESP32-S3:* It will look for the designated COM port.
-   - *If using ESP32 (WiFi):* A pop-up will ask you for the ESP32's IP Address the first time.
-   - Values are saved in `esp32_config.json` automatically.
+5. The application will auto-detect the ESP32-S3 COM port. If detection fails, a dialog will ask you to enter the COM port (saved to `esp32_config.json` for next launch).
 6. Pick your grinding settings and click **Start**.
 
 ### For Developers (Python Environment)
@@ -86,7 +62,7 @@ Choose the firmware based on your connection mode:
    python App.py
    ```
 
-*(You can use `python test_esp32s3.py` to directly debug ESP32-S3 USB connections, or `python testping_esp32.py` for older ESP32 WiFi/BLE connectivity metrics).*
+*(You can use `python test_esp32s3.py` to debug ESP32-S3 USB connections directly.)*
 
 ---
 
@@ -104,10 +80,8 @@ This project operates under the **GNU General Public License v3.0**. Read `LICEN
 **Modifications (Activision 2026 - PhaiKub & Colors):**
 - Transitioned off driver-level hooks.
 - Implemented **ESP32-S3 USB HID Combo** hardware bridge.
-- Maintained **ESP32 WiFi/BlueTooth HID** backward compatibility support.
-- GUI modernization. 
+- GUI modernization.
 - Integrated human-style randomization offsets.
 
 **Original Concept:**
 - Based heavily on the phenomenal automation groundwork laid down by [Walpth/Charge-Grinder](https://github.com/Walpth/Charge-Grinder). All logic flow mapping credits to the original author.
-- **BLE HID library:** [ESP32-BLE-Combo](https://github.com/blackketter/ESP32-BLE-Combo) by blackketter.

@@ -58,7 +58,6 @@ def _cmd(output_name: str, console_mode: str):
         f"--include-data-files={os.path.join(ROOT_DIR, 'ImageAssets', 'app.png')}=ImageAssets/app.png",
         f"--include-data-files={os.path.join(ROOT_DIR, 'version')}=version",
         f"--include-data-files={os.path.join(ROOT_DIR, 'source', 'utils', 'movement', 'model.npz')}=move_assets/model.npz",
-        f"--include-data-files={os.path.join(ROOT_DIR, 'source', 'utils', 'bridge', 'bridge.dll')}=move_assets/bridge.dll",
         ENTRY,
     ]
 

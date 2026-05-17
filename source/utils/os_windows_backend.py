@@ -25,12 +25,8 @@ def _get_bridge():
     with _bridge_lock:
         if _bridge is None:
             try:
-                if p.BRIDGE_MODE == "esp32s3":
-                    from source.utils.bridge.esp32s3_bridge import ESP32S3Bridge
-                    _bridge = ESP32S3Bridge(auto_open=True)
-                else:
-                    from source.utils.bridge.esp32_bridge import ESP32Bridge
-                    _bridge = ESP32Bridge(auto_open=True)
+                from source.utils.bridge.esp32s3_bridge import ESP32S3Bridge
+                _bridge = ESP32S3Bridge(auto_open=True)
                 _bridge_init_error = None
             except Exception as exc:
                 _bridge_init_error = RuntimeError(f"Bridge initialization failed: {exc}")
@@ -320,10 +316,8 @@ def _emit_rel_open_loop(dev, dx, dy):
 
 
 def _bridge_min_step_interval():
-    """Minimum elapsed time between HID emits, sized to the bridge's latency."""
-    if p.BRIDGE_MODE == "esp32s3":
-        return 0.008  # USB CDC ~5ms RTT
-    return 0.018      # BLE / SPP ~15-30ms RTT
+    """Minimum elapsed time between HID emits, sized to USB CDC latency (~5ms RTT)."""
+    return 0.008
 
 
 def _sync_hid_position(target_x, target_y):

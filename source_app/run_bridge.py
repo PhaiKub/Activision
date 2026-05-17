@@ -6,11 +6,7 @@ _initialized = False
 
 
 def init_bridge():
-    """Initialize the bridge connection.
-
-    Must be called AFTER params.BRIDGE_MODE is set so that
-    _get_bridge() picks the correct backend (ESP32 or ESP32-S3).
-    """
+    """Initialize the ESP32-S3 USB HID bridge connection."""
     global RAISE_ERROR, _initialized
     if _initialized:
         return
@@ -28,11 +24,10 @@ def init_bridge():
         RAISE_ERROR = True
 
 
-def retry_bridge(host=None, port=None):
-    """Reset and retry bridge connection.
+def retry_bridge(port=None):
+    """Reset and retry the ESP32-S3 USB bridge connection.
 
-    For ESP32 mode: pass host=<ip>
-    For ESP32-S3 mode: pass port=<COMx>
+    Pass port=<COMx> to override the COM port detection.
     """
     global RAISE_ERROR
 
@@ -41,10 +36,6 @@ def retry_bridge(host=None, port=None):
 
     from source.utils.os_windows_backend import _get_bridge, _bridge_lock
     import source.utils.os_windows_backend as _backend
-
-    if host:
-        import os
-        os.environ["ESP32_HOST"] = host
 
     if port:
         import os
