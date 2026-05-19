@@ -216,6 +216,7 @@ def inventory_check(reg, h, uptie_det=True):
 
     return coords, coords_agg, have, uptie
 
+
 def browse(hook_x, step=135, adj=0, dur=0.3):
     win_moveTo(hook_x, 480)
     win_dragTo(hook_x, 480 - step + adj, duration=dur, hook=True)
@@ -789,11 +790,11 @@ def update_shelf():
     return shop_shelf
 
 def filter_x_distance(points, x_tol=2, y_tol=25):
-    points = sorted(points, key=lambda pt: pt[0])
+    points = sorted(points, key=lambda p: p[0])
     result = []
-    for pt in points:
-        if all(abs(pt[0] - q[0]) >= x_tol or abs(pt[1] - q[1]) > y_tol for q in result):
-            result.append(pt)
+    for p in points:
+        if all(abs(p[0] - q[0]) >= x_tol or abs(p[1] - q[1]) > y_tol for q in result):
+            result.append(p)
     return result
 
 def get_shop(shop_shelf):

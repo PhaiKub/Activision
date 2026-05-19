@@ -213,7 +213,7 @@ def grab_card():
             get_card(f"card{i}")
             wait_while_condition(
                 condition=lambda: now.button("encounterreward"), 
-                action=lambda: win_click(1255, 924) if now.button("Confirm") else None, 
+                action=lambda: win_click(1255, 924) if now.button("Confirm") else None,
                 interval=0.1
             )
             return True
@@ -234,7 +234,7 @@ def confirm():
 def get_adversity():
     if not now.button("adversity"): return False
     x_coords = [box[0] for box in LocateRGB.locate_all(PTH["projection"], region=REG["projection"], threshold=100)]
-    x_coords = sorted(x_coords)
+    sorted(x_coords)
     for x in x_coords:
         ClickAction((x + 90, 550), ver="selectCount!").execute(click)
     time.sleep(0.3)

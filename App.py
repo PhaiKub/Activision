@@ -834,9 +834,9 @@ class MyApp(QWidget):
                 button.setIcon(QIcon())
 
         if self.is_lux:
-            self.sinner_selections[self.team_lux + 7] = []
+            self.sinner_selections[self.team_lux + 7]
         else:
-            self.sinner_selections[self.team] = []
+            self.sinner_selections[self.team]
 
     def save_config(self):
         if len(self.selected_card_order) < 5:
@@ -1492,16 +1492,8 @@ class ScrollableMyApp(QMainWindow):
             return self.base_height
 
 
-
-
-
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-
-    # --- Initialize ESP32-S3 USB HID bridge ---
-    from source_app.run_bridge import init_bridge
-    init_bridge()
-
     window = ScrollableMyApp()
     window.show()
     sys.exit(app.exec())

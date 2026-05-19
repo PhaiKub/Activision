@@ -6,7 +6,7 @@ The ESP32-S3 outputs USB HID mouse + keyboard events.
 
 Custom VID/PID: appears as "Microsoft USB Keyboard" in Device Manager.
 
-Commands (same protocol as ESP32 BLE version):
+Commands (USB Serial protocol):
   M dx dy     — relative mouse move
   C btn       — click (1=left, 2=right, 3=middle)
   D btn       — mouse button down

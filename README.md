@@ -36,7 +36,7 @@ The onboard WS2812 RGB LED (Pin 48) indicates connection status:
 * 🟢 **Green blink:** Idle (Python script disconnected / Grinding finished)
 * 🔴 **Red flash:** Error (Received an invalid command block)
 
-> **Note:** Standard ESP32 boards (BLE / WiFi / Bluetooth SPP) are no longer supported. If you have older hardware, use the legacy v2.x release branch.
+> **Note:** This fork requires an **ESP32-S3** board connected via USB. See the firmware setup guide above.
 
 ---
 

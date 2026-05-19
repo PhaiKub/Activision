@@ -34,6 +34,23 @@ def _get_bridge():
         return _bridge
 
 
+_mouse_settings_active = False
+
+
+def _ensure_mouse_settings():
+    """No-op for ESP32 bridge — mouse acceleration settings are not applicable."""
+    global _mouse_settings_active
+    if _mouse_settings_active:
+        return
+    _mouse_settings_active = True
+
+
+def restore_mouse_settings():
+    """No-op for ESP32 bridge — mouse acceleration settings are not applicable."""
+    global _mouse_settings_active
+    _mouse_settings_active = False
+
+
 class BITMAPINFOHEADER(ctypes.Structure):
     _fields_ = [
         ("biSize", wintypes.DWORD),
@@ -259,7 +276,7 @@ FAILSAFE_ENABLED = True
 
 
 def _apply_macro_rhythm(profile=None):
-    return  # Skip — BLE relative move would shift cursor off target
+    return  # Skip — HID relative move would shift cursor off target
 
 def set_failsafe(state=True):
     """Enable or disable the fail-safe feature"""
@@ -275,6 +292,7 @@ def _fail_safe_check():
     name = getActiveWindowTitle()
     
     if p.LIMBUS_NAME not in name:
+        restore_mouse_settings()
         raise PauseException(name)
 
 
