@@ -162,7 +162,7 @@ def pack():
     print(f"Entering Floor {p.LVL}")
     logging.info(f"Floor {p.LVL}")
 
-    win_moveTo(1721, 999)
+    win_moveTo(1617, 62, tsize=(240, 60))
     time.sleep(0.2)
 
     card_count = 5
@@ -190,11 +190,13 @@ def pack():
         if not id is None:
             region = regions[id]
             x, y = (region[0] + (region[2] // 2), region[1] + (region[3] // 2))
+            x += random.randint(-40, 40)
+            y += random.randint(-175, 175)
             win_moveTo(x, y)
-            win_dragTo(x, y + 300, duration=0.5, button="left")
+            win_dragTo(x, y + 300, duration=0.31)
             break
         if skip != skips:
-            win_click(1617, 62)
+            win_click(1617, 62, tsize=(240, 60))
             time.sleep(2)
     
     wait_while_condition(lambda: now.button("PackChoice"), interval=0.1)

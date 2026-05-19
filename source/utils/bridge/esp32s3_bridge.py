@@ -391,7 +391,11 @@ class ESP32S3Bridge:
             self._send(f"M {sx} {sy}", wait_ack=False)
             dx -= sx
             dy -= sy
-            time.sleep(0.005)
+            if dx != 0 or dy != 0:
+                # Only pace between chunks of a single large delta.
+                # Avoid sleeping after the last emit so trajectory throughput is not
+                # bottlenecked by per-call sleeps on top of USB CDC latency.
+                time.sleep(0.002)
 
     def mouse_press(self, button="left"):
         self._send(f"D {self._button_code(button)}", wait_ack=False)
@@ -409,6 +413,9 @@ class ESP32S3Bridge:
 
     def key_press(self, key):
         self._send(f"K {self._key_code(key)}", wait_ack=False)
+
+    def key_release(self, key):
+        self._send(f"R {self._key_code(key)}", wait_ack=False)
 
     def key_release_all(self):
         self._send("A", wait_ack=False)

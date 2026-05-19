@@ -1,14 +1,18 @@
 import ctypes
 from ctypes import wintypes
-import numpy as np
 import time
 import math
 import random
 import os
 import threading
+
+import numpy as np
+
 import source.utils.params as p
 from source.utils.profiles import get_macro_profile, maybe_rhythm_jitter, randomize_with_profile
-
+from source.utils.movement.builder import build_trajectory
+from source.utils.movement.inertia import get_inherited_velocity, update_inertia
+from source.utils.movement.pointer_gain import update_pointer_scale, execute_trajectory
 
 
 _bridge = None
@@ -21,12 +25,8 @@ def _get_bridge():
     with _bridge_lock:
         if _bridge is None:
             try:
-                if p.BRIDGE_MODE == "esp32s3":
-                    from source.utils.bridge.esp32s3_bridge import ESP32S3Bridge
-                    _bridge = ESP32S3Bridge(auto_open=True)
-                else:
-                    from source.utils.bridge.esp32_bridge import ESP32Bridge
-                    _bridge = ESP32Bridge(auto_open=True)
+                from source.utils.bridge.esp32s3_bridge import ESP32S3Bridge
+                _bridge = ESP32S3Bridge(auto_open=True)
                 _bridge_init_error = None
             except Exception as exc:
                 _bridge_init_error = RuntimeError(f"Bridge initialization failed: {exc}")
@@ -111,7 +111,7 @@ def screenshot(imageFilename=None, region=None, allScreens=False):
 
 user32 = ctypes.windll.user32
 
-# Tweening functions
+# Tweening functions (kept for backward compatibility)
 def linear(t):
     return t
 
@@ -166,19 +166,73 @@ def center(target=None):
         width, height = get_screen_size()
         return (width // 2, height // 2)
 
+
+def get_virtual_screen_bounds():
+    x = user32.GetSystemMetrics(76)  # SM_XVIRTUALSCREEN
+    y = user32.GetSystemMetrics(77)  # SM_YVIRTUALSCREEN
+    width = user32.GetSystemMetrics(78)  # SM_CXVIRTUALSCREEN
+    height = user32.GetSystemMetrics(79)  # SM_CYVIRTUALSCREEN
+    return x, y, x + width, y + height
+
+
+def clip_region_to_virtual(region):
+    x, y, w, h = region
+    min_x, min_y, max_x, max_y = p.SCREEN
+
+    x2 = max(x, min_x)
+    y2 = max(y, min_y)
+
+    x_end = min(x + w, max_x)
+    y_end = min(y + h, max_y)
+
+    w2 = x_end - x2
+    h2 = y_end - y2
+
+    if w2 <= 0 or h2 <= 0:
+        return None
+
+    return x2, y2, w2, h2
+
+
 def _human_delay(min_delay=0.01, max_delay=0.03):
     time.sleep(random.uniform(min_delay, max_delay))
 
-def mouseDown(button='left', delay=0.16):
+
+def _profile_value(profile, key, default):
+    if profile is None:
+        return default
+    return profile.get(key, default)
+
+
+def _sample_hold_seconds(kind, profile=None):
+    """Sample hold duration from median/IQR and clamp to profile bounds."""
+    if kind == "click":
+        median_ms = float(_profile_value(profile, "click_hold_median_ms", 90.0))
+        iqr_ms = float(_profile_value(profile, "click_hold_iqr_ms", 18.0))
+        min_ms, max_ms = _profile_value(profile, "click_hold_bounds_ms", (38.0, 220.0))
+    else:
+        median_ms = float(_profile_value(profile, "key_hold_median_ms", 100.0))
+        iqr_ms = float(_profile_value(profile, "key_hold_iqr_ms", 31.0))
+        min_ms, max_ms = _profile_value(profile, "key_hold_bounds_ms", (32.0, 260.0))
+
+    sigma_ms = max(1.0, iqr_ms / 1.349)
+    sampled_ms = random.gauss(median_ms, sigma_ms)
+    sampled_ms = max(float(min_ms), min(float(max_ms), sampled_ms))
+    return sampled_ms / 1000.0
+
+
+def mouseDown(button='left', delay=0.03, jitter=0.04):
     _fail_safe_check()
     try:
         _get_bridge().mouse_press(button=button)
     except Exception as e:
         print(f"[click] mouseDown failed: {e}")
-    time.sleep(0.05)
+    if delay > 0:
+        _human_delay(delay, delay + max(0.0, jitter))
     _fail_safe_check()
 
-def mouseUp(button='left', delay=0.16):
+
+def mouseUp(button='left', delay=0.03, jitter=0.05):
     _fail_safe_check()
     for attempt in range(3):
         try:
@@ -187,7 +241,8 @@ def mouseUp(button='left', delay=0.16):
         except Exception as e:
             print(f"[click] mouseUp failed (attempt {attempt + 1}): {e}")
             time.sleep(0.05)
-    time.sleep(0.05)
+    if delay > 0:
+        _human_delay(delay, delay + max(0.0, jitter))
     _fail_safe_check()
 
 
@@ -223,99 +278,149 @@ def _fail_safe_check():
         raise PauseException(name)
 
 
+def _within_target(a, b, size=(20.0, 20.0)):
+    width, height = size if size else (20.0, 20.0)
+    return (
+        abs(float(a[0]) - float(b[0])) <= max(float(width), 0.0) / 2.0 and
+        abs(float(a[1]) - float(b[1])) <= max(float(height), 0.0) / 2.0
+    )
+
+
+def _clamp_point_to_screen_bounds(x, y):
+    if p.SCREEN is None:
+        return int(round(float(x))), int(round(float(y)))
+    min_x, min_y, max_x, max_y = p.SCREEN
+    max_x = max(min_x, max_x - 1)
+    max_y = max(min_y, max_y - 1)
+    return (
+        int(round(min(max(float(x), min_x), max_x))),
+        int(round(min(max(float(y), min_y), max_y))),
+    )
+
+
+def _project_points_to_screen_bounds(points):
+    if p.SCREEN is None:
+        return np.asarray(points, dtype=float).copy()
+    min_x, min_y, max_x, max_y = p.SCREEN
+    max_x = max(min_x, max_x - 1)
+    max_y = max(min_y, max_y - 1)
+
+    projected = np.asarray(points, dtype=float).copy()
+    projected[:, 0] = np.clip(projected[:, 0], min_x, max_x)
+    projected[:, 1] = np.clip(projected[:, 1], min_y, max_y)
+    return projected
+
+
+def _emit_rel_open_loop(dev, dx, dy):
+    _get_bridge().mouse_move_relative(int(dx), int(dy))
+
+
+def _bridge_min_step_interval():
+    """Minimum elapsed time between HID emits, sized to USB CDC latency (~5ms RTT)."""
+    return 0.008
+
+
 def _sync_hid_position(target_x, target_y):
-    """Sync HID device with actual cursor position.
+    """Force a HID input event so the game registers the cursor position.
 
-    After SetCursorPos, the game may not register the new position because
-    it reads from raw HID input. This sends a tiny nudge to generate
-    a real HID input event, which forces the game engine to read the
-    current absolute cursor position.
-
-    Works for both ESP32 (BLE HID) and ESP32-S3 (USB HID) since both
-    are physical HID devices that the game reads raw input from.
+    The game reads from raw HID input, so a no-op nudge ensures the most
+    recent relative deltas have been seen. We deliberately skip SetCursorPos
+    so we do not stomp on the human-like trajectory that just landed.
     """
-    # Send a tiny nudge (+1 then -1) to force a HID report.
-    # We must wait for the TCP send to complete, so we use a small sleep.
-    # The game intercepts the physical mouse move and syncs its UI cursor.
-    _get_bridge().mouse_move_relative(1, 0)
-    _get_bridge().mouse_move_relative(-1, 0)
-    time.sleep(0.01)
-    
-    # Ensure the absolute cursor is exactly on target as the final step
-    ctypes.windll.user32.SetCursorPos(int(target_x), int(target_y))
+    bridge = _get_bridge()
+    bridge.mouse_move_relative(1, 0)
+    bridge.mouse_move_relative(-1, 0)
 
 
-def moveTo(x, y, duration=0.0, tween=easeInOutQuad, delay=0.09, humanize=True,
-           mouse_velocity=0.65, noise=2.6, offset_x=0, offset_y=0):
+def moveTo(x, y, duration=0, delay=0.0, tsize=(5.0, 5.0), offset_x=0, offset_y=0, curve=0.8, n_sub=None, inertia=False):
     _fail_safe_check()
 
     start_x, start_y = get_position()
-    total_dx = x - start_x
-    total_dy = y - start_y
-    distance = math.hypot(total_dx, total_dy)
+    end_x = int(round(x + offset_x))
+    end_y = int(round(y + offset_y))
+    end_x, end_y = _clamp_point_to_screen_bounds(end_x, end_y)
 
-    if distance > 2:
-        move_time = max(0.08, distance / 2000)
-        steps = max(5, int(distance / 8))
-        step_delay = move_time / steps
-        for i in range(1, steps + 1):
-            t = i / steps
-            t = t * t * (3 - 2 * t)  # ease-in-out
-            cur_x = int(round(start_x + total_dx * t))
-            cur_y = int(round(start_y + total_dy * t))
-            ctypes.windll.user32.SetCursorPos(cur_x, cur_y)
-            time.sleep(step_delay)
+    tsize = tsize if tsize else (20.0, 20.0)
+    if _within_target((start_x, start_y), (end_x, end_y), tsize):
+        return
 
-    # Final position set
-    ctypes.windll.user32.SetCursorPos(int(x), int(y))
-    time.sleep(0.03)
+    if delay > 0:
+        profile = get_macro_profile()
+        time.sleep(randomize_with_profile(delay, profile=profile, key="delay_jitter"))
 
-    # Sync BLE HID with actual cursor position so game registers it
-    _sync_hid_position(int(x), int(y))
+    duration_override = duration if duration and duration > 0 else None
 
-    time.sleep(0.07)  # settle — game needs time to register cursor
-    _fail_safe_check()
+    last_pos = (start_x, start_y)
+    min_step_interval = _bridge_min_step_interval()
+
+    for _ in range(4):  # Limit retry iterations to prevent infinite loops
+        traj = build_trajectory(
+            last_pos,
+            (end_x, end_y),
+            duration_override=duration_override,
+            target_width=tsize[0],
+            target_height=tsize[1],
+            initial_velocity=get_inherited_velocity() if inertia else None,
+            curviness=curve,
+            n_submovements=n_sub
+        )
+
+        raw_path = _project_points_to_screen_bounds(traj["points"])
+        times = traj["times"]
+
+        raw_delta = execute_trajectory(
+            None, raw_path, times,
+            emit_func=_emit_rel_open_loop,
+            min_step_interval=min_step_interval,
+        )
+        last_pos = get_position()
+
+        if not np.any(np.abs(raw_delta) > 15.0) or \
+           _within_target(last_pos, (end_x, end_y), tsize):
+            break
+
+        update_pointer_scale(raw_delta, raw_path[0], last_pos)
+        _fail_safe_check()
+
+    update_inertia(raw_path, times)
 
 
-
-def click(x=None, y=None, button='left', clicks=1, interval=0.1, duration=0.0, tween=easeInOutQuad, delay=0.03):
+def click(x=None, y=None, button='left', clicks=1, interval=0.15, duration=0.0, tsize=(5.0, 5.0), delay=0.03):
     _fail_safe_check()
     profile = get_macro_profile()
     _apply_macro_rhythm(profile)
     delay = randomize_with_profile(delay, profile=profile, key="delay_jitter")
-    interval += 0.05
-    
+
     if x is not None and y is not None:
-        moveTo(x, y, duration, tween, delay=delay+0.02)
-        
-    elif duration > 0:
-        current_x, current_y = get_position()
-        moveTo(current_x, current_y, duration, tween, delay=delay+0.02)
-    else:
-        time.sleep(0.02)
+        moveTo(x, y, duration=duration, delay=delay+0.02, tsize=tsize)
 
     for i in range(clicks):
         _fail_safe_check()
-        
-        mouseDown(button, delay=delay)
+        click_hold = _sample_hold_seconds("click", profile=profile)
+        mouseDown(button, delay=click_hold, jitter=0.0)
         mouseUp(button, delay=delay)
-        
+
         if interval > 0 and i < clicks - 1:
             time.sleep(randomize_with_profile(interval, profile=profile, key="click_interval_jitter"))
             _fail_safe_check()
 
 
-def dragTo(x, y, duration=0.1, tween=easeInOutQuad, button='left', start_x=None, start_y=None, humanize=False):
+def dragTo(x, y, duration=0.1, button='left', tsize=(5.0, 5.0), start_x=None, start_y=None, hook=False):
     _fail_safe_check()
     _apply_macro_rhythm()
-    
+
     if start_x is not None and start_y is not None:
-        moveTo(start_x, start_y)
+        moveTo(start_x, start_y, tsize=tsize)
 
     mouseDown(button, delay=0.03)
-    moveTo(x, y, duration, tween, humanize=humanize)
+    moveTo(x, y, duration=duration, tsize=tsize, n_sub=1, inertia=False)
     mouseUp(button, delay=0.03)
+
+    if hook:
+        mouseDown(button, delay=0.03)
+        mouseUp(button, delay=0.03)
     _fail_safe_check()
+
 
 def scroll(clicks, x=None, y=None):
     _fail_safe_check()
@@ -340,45 +445,44 @@ def press(keys, presses=1, interval=0.1, delay=0.09):
     if isinstance(keys, str):
         keys = [keys]
 
+    bridge = _get_bridge()
+    has_release = hasattr(bridge, "key_release")
+
     for _p in range(presses):
-        _fail_safe_check()
-        if len(keys) > 1:
-            _get_bridge().key_multi_press(keys)
-            time.sleep(randomize_with_profile(delay, profile=profile, key="delay_jitter"))
-            _get_bridge().key_release_all()
-        elif len(keys) == 1:
-            _get_bridge().key_press(keys[0])
-            time.sleep(randomize_with_profile(delay, profile=profile, key="delay_jitter"))
-            _get_bridge().key_release_all()
+        if isinstance(keys, str):
+            keys = [keys]
+
+        for key in keys:
+            _fail_safe_check()
+            bridge.key_press(key)
+            key_hold = _sample_hold_seconds("key", profile=profile)
+            time.sleep(key_hold)
+
+        if has_release:
+            for key in reversed(keys):
+                bridge.key_release(key)
+        else:
+            bridge.key_release_all()
 
         if interval > 0 and _p < presses - 1:
             time.sleep(randomize_with_profile(interval, profile=profile, key="key_interval_jitter"))
             _fail_safe_check()
+
 
 def hotkey(*args, **kwargs):
     press(list(args), **kwargs)
 
 
 def check_window():
-    user32 = ctypes.windll.user32
-
-    vx = user32.GetSystemMetrics(76)
-    vy = user32.GetSystemMetrics(77)
-    vw = user32.GetSystemMetrics(78)
-    vh = user32.GetSystemMetrics(79)
-
-    vright = vx + vw
-    vbottom = vy + vh
-
+    if p.SCREEN is None:
+        p.SCREEN = get_virtual_screen_bounds()
+    min_x, min_y, max_x, max_y = p.SCREEN
     left, top, width, height = p.WINDOW
-    right = left + width
-    bottom = top + height
-
     in_bounds = (
-        left >= vx and
-        top >= vy and
-        right <= vright and
-        bottom <= vbottom
+        left >= min_x and
+        top >= min_y and
+        left + width <= max_x and
+        top + height <= max_y
     )
     if not in_bounds:
         raise WindowError("Window is partially or completely out of screen bounds!")
@@ -411,6 +515,7 @@ def set_window():
     top += (client_height - target_height) // 2
 
     p.WINDOW = (left, top, target_width, target_height)
+    p.SCREEN = get_virtual_screen_bounds()
     check_window()
 
     if int(client_width / 16) != int(client_height / 9):

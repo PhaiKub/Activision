@@ -6,14 +6,6 @@ v_list = [0.8, 0.9, 1]
 d_list = [None, -0.1, -0.19]
 keys_map = {0: "w", 1: "d", 2: "s"}
 
-lost_rangs = [
-    (( 201, 1714), (201, 244)), 
-    (( 201, 1714), (844, 881)), 
-    (( 201,  524), (244, 844)), 
-    ((1404, 1714), (244, 844))
-]
-lost_weights = [(x[1]-x[0]) * (y[1]-y[0]) for x, y in lost_rangs]
-
 
 def is_boss(region=(624, 376, 282, 275)):
     image = screenshot(region=region)
@@ -74,9 +66,8 @@ def get_node_name(_loc, region):
 
 def position(shift=0):
     x, y = random.randint(1500, 1700), random.randint(300, 500)
-    win_moveTo(x, y)
-    win_dragTo(x - 275, y + 103 + shift*315, duration=0.4)
-    win_click()
+    win_moveTo(x, y, tsize=(1, 1))
+    win_dragTo(x - 295, y + 100 + shift*320, duration=0.41, hook=True, tsize=(1, 1))
 
 def directions(is_aligned=True):
     options = {
@@ -86,10 +77,11 @@ def directions(is_aligned=True):
     }
     regions = dict()
     dir_reg = "directions_init" if not is_aligned else "directions"
-    reg_xy = (624, 101) if is_aligned else (914, 0)
+    reg_xy = (634, 80) if is_aligned else (914, 0)
+    # cv2.imwrite(f"testing/directions{time.time()}.png", screenshot(region=REG[dir_reg]))
     for i, suffix in options.items():
-        if now.button(suffix, dir_reg, conf=0.8):
-            regions[i] = (reg_xy[0], reg_xy[1] + i * 275, 282, 275)
+        if now.button(suffix, dir_reg, conf=0.85):
+            regions[i] = (reg_xy[0], reg_xy[1] + i * 310, 282, 275)
     return regions
 
 
@@ -176,7 +168,7 @@ def next_step(nodes, extra_connections):
     return best_idx, nodes[0][best_idx]
 
 
-def enter(wait=1):
+def enter(wait=1.2):
     if now.button("enter", wait=wait):
         gui.press("space")
         connection()
@@ -230,6 +222,7 @@ def move():
     if now.button("victory") or not now.button("Move"): return False
 
     if not now_rgb.button("Danteh"):
+        print("Case 0: Bus is out of view")
         gui.press("d")
         gui.press("a")
 
@@ -245,12 +238,12 @@ def move():
             return False
     
     regions = directions(is_aligned=False)
+    print(f"Visible directions: {list(regions.keys())}")
 
     adjust = 0
     if len(regions) == 0:
         print("Case 2: No directions are visible")
-        gui.press("space")
-        if enter():
+        if input_with_fallback("space", lambda: win_click(705, 411), enter) or move_fallback():
             logging.info("Entering unknown node")
             return True
         return False
@@ -260,8 +253,9 @@ def move():
         region = regions[region_idx]
         _loc = LocatePreset(image=screenshot(region=region), v_comp=v_list[region_idx], conf=0.8, wait=False)
         name = get_node_name(_loc, region)
-        gui.press(keys_map.get(region_idx, "d"))
-        if enter():
+        key_name = keys_map.get(region_idx, "d")
+
+        if input_with_fallback(key_name, lambda: win_click(gui.center(region)), enter):
             logging.info(f"Entering {name} {'fight'*(name!='Event' and name!='Shop')}")
             return True
         return False
@@ -274,16 +268,10 @@ def move():
         adjust = check_connections(inter_connect)
         position(shift=adjust)
 
-    if is_boss():
-        gui.press("d")
-        enter()
-        logging.info("Entering Boss fight")
-        return True
-
     regions = directions()
     if adjust:
         keys = [i + adjust for i in regions.keys() if 0 <= i + adjust <= 2]
-        regions = {key: (624, 101 + key * 275, 282, 275) for key in keys}
+        regions = {key: (634, 80 + key * 310, 282, 275) for key in keys}
     
     inter_connect = get_connections()
     print(inter_connect)
@@ -291,11 +279,11 @@ def move():
 
     for depth in range(3):
         if depth == 0: srch_regions = regions.copy()
-        else: srch_regions = {i: (624 + 380 * depth, 101 + i * 275, 282, 275) for i in range(3)}
+        else: srch_regions = {i: (634 + 380 * depth, 80 + i * 310, 282, 275) for i in range(3)}
 
         for level, region in srch_regions.items():
             _loc = LocatePreset(image=screenshot(region=region), v_comp=v_list[level], distort=d_list[depth], conf=0.8, wait=False)
-            # cv2.imwrite(f"region{depth}{level}.png", screenshot(region=region))
+            # cv2.imwrite(f"testing/region{depth}{level}.png", screenshot(region=region))
 
             if now_rgb.button("coin", region, conf=0.9):
                 if now_rgb.button("gift", region, conf=0.9):
@@ -316,11 +304,6 @@ def move():
                 nodes[depth][level] = "Event"
                 continue
 
-            elif depth == 0 and is_shop(_loc, region):
-                gui.press("d")
-                enter()
-                logging.info("Entering Shop")
-                return True
         if not any(nodes[depth]):
             if depth != 0: nodes = nodes[:depth]
             break
@@ -328,16 +311,35 @@ def move():
         print(nodes)
         id, name = next_step(nodes, inter_connect)
         if not id is None:
-            gui.press(keys_map.get(int(id-adjust), "d"))
-            enter()
-            logging.info(f"Entering {name} {'fight'*(name!='Event')}")
-            return True
-    else:
-        for key in ["d", "space"]:
-            gui.press(key)
-            if not enter():
-                continue
+            key_name = keys_map.get(int(id-adjust), "d")
+            region = regions[id]
+            if input_with_fallback(key_name, lambda: win_click(gui.center(region)), enter):
+                logging.info(f"Entering {name} {'fight'*(name!='Event')}")
+                return True
+    elif move_fallback():
+        logging.info("Entering unknown node")
+        return True
+    return False
 
-            logging.info("Entering unknown node")
+
+def move_fallback():
+    for key in ["d", "space"]:
+        gui.press(key)
+        if enter():
             return True
+
+    Danteh = LocateRGB.locate(PTH["Danteh"])
+    if Danteh is None: return False
+
+    Danteh = gui.center(Danteh)
+    win_click(Danteh)
+    if enter(): return True
+
+    for i in range(3):
+        x_click = int(Danteh[0] + 336)
+        y_click = int(Danteh[1] - 241 + i * 275)
+        if 57 <= x_click <= 1809 and 110 <= y_click <= 934:
+            win_moveTo(x_click, y_click)
+            gui.click()
+            if enter(): return True
     return False
