@@ -234,7 +234,7 @@ def confirm():
 def get_adversity():
     if not now.button("adversity"): return False
     x_coords = [box[0] for box in LocateRGB.locate_all(PTH["projection"], region=REG["projection"], threshold=100)]
-    sorted(x_coords)
+    x_coords = sorted(x_coords)
     for x in x_coords:
         ClickAction((x + 90, 550), ver="selectCount!").execute(click)
     time.sleep(0.3)

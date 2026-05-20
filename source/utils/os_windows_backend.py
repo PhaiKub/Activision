@@ -407,6 +407,7 @@ def moveTo(x, y, duration=0, delay=0.0, tsize=(5.0, 5.0), offset_x=0, offset_y=0
         _fail_safe_check()
 
     update_inertia(raw_path, times)
+    _sync_hid_position(end_x, end_y)
 
 
 def click(x=None, y=None, button='left', clicks=1, interval=0.15, duration=0.0, tsize=(5.0, 5.0), delay=0.03):

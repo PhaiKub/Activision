@@ -206,7 +206,7 @@ def select_team():
     for i in range(4):
         coords = [gui.center(box) for box in LocateGray.locate_all(PTH[f"{affinity}_team"], region=REG["teams"], threshold=15, conf=0.85)]
         print(coords)
-        sorted(coords, key=lambda coord: coord[1])
+        coords = sorted(coords, key=lambda coord: coord[1])
 
         if len(coords) > idx:
             if i != 0 and i != 3: gui.mouseUp()
