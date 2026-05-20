@@ -15,6 +15,8 @@ from source.utils.movement.inertia import get_inherited_velocity, update_inertia
 from source.utils.movement.pointer_gain import update_pointer_scale, execute_trajectory
 
 
+from source.utils.bridge.esp32s3_bridge import ESP32S3BridgeError
+
 _bridge = None
 _bridge_lock = threading.RLock()
 _bridge_init_error = None
@@ -32,6 +34,23 @@ def _get_bridge():
                 _bridge_init_error = RuntimeError(f"Bridge initialization failed: {exc}")
                 raise _bridge_init_error
         return _bridge
+
+
+_mouse_settings_active = False
+
+
+def _ensure_mouse_settings():
+    """No-op for ESP32 bridge — mouse acceleration settings are not applicable."""
+    global _mouse_settings_active
+    if _mouse_settings_active:
+        return
+    _mouse_settings_active = True
+
+
+def restore_mouse_settings():
+    """No-op for ESP32 bridge — mouse acceleration settings are not applicable."""
+    global _mouse_settings_active
+    _mouse_settings_active = False
 
 
 class BITMAPINFOHEADER(ctypes.Structure):
@@ -225,6 +244,8 @@ def mouseDown(button='left', delay=0.03, jitter=0.04):
     _fail_safe_check()
     try:
         _get_bridge().mouse_press(button=button)
+    except ESP32S3BridgeError:
+        raise
     except Exception as e:
         print(f"[click] mouseDown failed: {e}")
     if delay > 0:
@@ -238,6 +259,8 @@ def mouseUp(button='left', delay=0.03, jitter=0.05):
         try:
             _get_bridge().mouse_release(button=button)
             break
+        except ESP32S3BridgeError:
+            raise
         except Exception as e:
             print(f"[click] mouseUp failed (attempt {attempt + 1}): {e}")
             time.sleep(0.05)
@@ -259,7 +282,7 @@ FAILSAFE_ENABLED = True
 
 
 def _apply_macro_rhythm(profile=None):
-    return  # Skip — BLE relative move would shift cursor off target
+    return  # Skip — HID relative move would shift cursor off target
 
 def set_failsafe(state=True):
     """Enable or disable the fail-safe feature"""
@@ -275,6 +298,7 @@ def _fail_safe_check():
     name = getActiveWindowTitle()
     
     if p.LIMBUS_NAME not in name:
+        restore_mouse_settings()
         raise PauseException(name)
 
 
@@ -383,6 +407,7 @@ def moveTo(x, y, duration=0, delay=0.0, tsize=(5.0, 5.0), offset_x=0, offset_y=0
         _fail_safe_check()
 
     update_inertia(raw_path, times)
+    _sync_hid_position(end_x, end_y)
 
 
 def click(x=None, y=None, button='left', clicks=1, interval=0.15, duration=0.0, tsize=(5.0, 5.0), delay=0.03):

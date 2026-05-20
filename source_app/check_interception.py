@@ -115,6 +115,8 @@ def check_windows(app_parent=None):
     if not ensure_interception_driver(app_parent=app_parent):
         return False
 
+    _run_bridge.init_bridge()
+
     if _run_bridge.RAISE_ERROR:
         if not prompt_esp32s3_port(app_parent=app_parent):
             return False

@@ -327,7 +327,7 @@ def move_fallback():
         gui.press(key)
         if enter():
             return True
-
+    
     Danteh = LocateRGB.locate(PTH["Danteh"])
     if Danteh is None: return False
 

@@ -266,7 +266,7 @@ def select(sinners):
 
     input_with_fallback(
         "space", 
-        lambda: win_click(1728, 884, tsize=(254,  118)), 
+        lambda: win_click(1728, 884, tsize=(200,  50)), 
         lambda: loc.button("loading", wait=5)
     )
     loading_halt()
@@ -300,7 +300,7 @@ def chain(gear_start, gear_end, background):
         else:
             win_moveTo(x + 68, y + 80, duration=0.15, tsize=(60, 60), inertia=True)
         x += 115
-    win_moveTo(x + 91, y + 131, duration=0.15, tsize=(40, 40), inertia=True)
+    win_moveTo(x + 91, y + 131, duration=0.15, tsize=(25, 25), inertia=True)
     gui.mouseUp()
 
 
