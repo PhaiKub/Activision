@@ -311,7 +311,10 @@ class ESP32S3Bridge:
     def _send_raw(self, cmd):
         data = f"{cmd}\n".encode("utf-8")
         if not self._serial or not self._serial.is_open:
-            return
+            if not self._reconnect():
+                raise ESP32S3BridgeError(
+                    "ESP32-S3 disconnected and reconnect failed"
+                )
         try:
             self._serial.write(data)
             self._serial.flush()
@@ -321,7 +324,13 @@ class ESP32S3Bridge:
                     self._serial.write(data)
                     self._serial.flush()
                 except Exception:
-                    pass
+                    raise ESP32S3BridgeError(
+                        "ESP32-S3 write failed after reconnect"
+                    )
+            else:
+                raise ESP32S3BridgeError(
+                    "ESP32-S3 disconnected and reconnect failed"
+                )
 
     def _read_response(self, timeout=0.5):
         if not self._serial or not self._serial.is_open:

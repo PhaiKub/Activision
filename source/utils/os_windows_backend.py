@@ -15,6 +15,8 @@ from source.utils.movement.inertia import get_inherited_velocity, update_inertia
 from source.utils.movement.pointer_gain import update_pointer_scale, execute_trajectory
 
 
+from source.utils.bridge.esp32s3_bridge import ESP32S3BridgeError
+
 _bridge = None
 _bridge_lock = threading.RLock()
 _bridge_init_error = None
@@ -242,6 +244,8 @@ def mouseDown(button='left', delay=0.03, jitter=0.04):
     _fail_safe_check()
     try:
         _get_bridge().mouse_press(button=button)
+    except ESP32S3BridgeError:
+        raise
     except Exception as e:
         print(f"[click] mouseDown failed: {e}")
     if delay > 0:
@@ -255,6 +259,8 @@ def mouseUp(button='left', delay=0.03, jitter=0.05):
         try:
             _get_bridge().mouse_release(button=button)
             break
+        except ESP32S3BridgeError:
+            raise
         except Exception as e:
             print(f"[click] mouseUp failed (attempt {attempt + 1}): {e}")
             time.sleep(0.05)
