@@ -48,8 +48,10 @@ def get_lowskill():
 
 def ego_click(best_ego):
     gui.mouseDown()
-    time.sleep(1.5)
-    gui.mouseUp()
+    try:
+        time.sleep(1.5)
+    finally:
+        gui.mouseUp()
     image_all = screenshot(region=(0, 200, 1920, 50))
     _, image_best = cv2.threshold(cv2.cvtColor(screenshot(region=(0, 495, 1920, 50)), cv2.COLOR_BGR2GRAY), 100, 255, cv2.THRESH_TOZERO)
     for i, h_comp in product(best_ego, [0.95, 0.98, 1, 1.02, 1.05]):
@@ -203,26 +205,38 @@ def select_team():
         win_dragTo(289, 984)
         time.sleep(1)
 
-    for i in range(4):
-        coords = [gui.center(box) for box in LocateGray.locate_all(PTH[f"{affinity}_team"], region=REG["teams"], threshold=15, conf=0.85)]
-        print(coords)
-        coords = sorted(coords, key=lambda coord: coord[1])
+    _drag_held = False
+    try:
+        for i in range(4):
+            coords = [gui.center(box) for box in LocateGray.locate_all(PTH[f"{affinity}_team"], region=REG["teams"], threshold=15, conf=0.85)]
+            print(coords)
+            coords = sorted(coords, key=lambda coord: coord[1])
 
-        if len(coords) > idx:
-            if i != 0 and i != 3: gui.mouseUp()
-            win_click(coords[idx])
-            break
-        elif i != 3:
-            idx -= len(coords)
-            if i != 0: gui.mouseUp()
-            win_moveTo(196, 670)
-            gui.mouseDown()
-            win_moveTo(193, 400)
-            if i == 2: gui.mouseUp()
-            time.sleep(0.3)
-    else:
-        logging.info("Team selecton failed!")
-        return
+            if len(coords) > idx:
+                if _drag_held:
+                    gui.mouseUp()
+                    _drag_held = False
+                win_click(coords[idx])
+                break
+            elif i != 3:
+                idx -= len(coords)
+                if _drag_held:
+                    gui.mouseUp()
+                    _drag_held = False
+                win_moveTo(196, 670)
+                gui.mouseDown()
+                _drag_held = True
+                win_moveTo(193, 400)
+                if i == 2:
+                    gui.mouseUp()
+                    _drag_held = False
+                time.sleep(0.3)
+        else:
+            logging.info("Team selecton failed!")
+            return
+    finally:
+        if _drag_held:
+            gui.mouseUp()
     logging.info(f"Selected {p.TEAM[0]}")
     time.sleep(1)
 
@@ -292,16 +306,18 @@ def chain(gear_start, gear_end, background):
     # Chaining
     win_moveTo(gear_start)
     gui.mouseDown()
-    x += 75
-    y -= 46
-    for i in range(skill_num):
-        if moves[i]:
-            win_moveTo(x + 68, y + 190, duration=0.15, tsize=(60, 60), inertia=True)
-        else:
-            win_moveTo(x + 68, y + 80, duration=0.15, tsize=(60, 60), inertia=True)
-        x += 115
-    win_moveTo(x + 91, y + 131, duration=0.15, tsize=(25, 25), inertia=True)
-    gui.mouseUp()
+    try:
+        x += 75
+        y -= 46
+        for i in range(skill_num):
+            if moves[i]:
+                win_moveTo(x + 68, y + 190, duration=0.15, tsize=(60, 60), inertia=True)
+            else:
+                win_moveTo(x + 68, y + 80, duration=0.15, tsize=(60, 60), inertia=True)
+            x += 115
+        win_moveTo(x + 91, y + 131, duration=0.15, tsize=(25, 25), inertia=True)
+    finally:
+        gui.mouseUp()
 
 
 def fight(lux=False):
@@ -366,14 +382,18 @@ def fight(lux=False):
         if now.button("ego_warning"): # skip corrosion
             ck = True
             gui.mouseDown()
-            wait_while_condition(lambda: loc.button("ego_warning", wait=1), interval=0)
-            gui.mouseUp()
+            try:
+                wait_while_condition(lambda: loc.button("ego_warning", wait=1), interval=0)
+            finally:
+                gui.mouseUp()
 
         if (ego_image := is_ego()) is not None: # skip EGO animation
             ck = True
             gui.mouseDown()
-            wait_while_condition(lambda: LocateRGB.check(ego_image, region=REG["ego_usage"], wait=1), interval=0)
-            gui.mouseUp()
+            try:
+                wait_while_condition(lambda: LocateRGB.check(ego_image, region=REG["ego_usage"], wait=1), interval=0)
+            finally:
+                gui.mouseUp()
 
         if now.button("RetryStage"):
             attempts += 1

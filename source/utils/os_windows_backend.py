@@ -12,7 +12,7 @@ import source.utils.params as p
 from source.utils.profiles import get_macro_profile, maybe_rhythm_jitter, randomize_with_profile
 from source.utils.movement.builder import build_trajectory
 from source.utils.movement.inertia import get_inherited_velocity, update_inertia
-from source.utils.movement.pointer_gain import update_pointer_scale, execute_trajectory
+from source.utils.movement.pointer_gain import update_pointer_scale, execute_trajectory, _POINTER_STATE
 
 
 from source.utils.bridge.esp32s3_bridge import ESP32S3BridgeError
@@ -240,10 +240,22 @@ def _sample_hold_seconds(kind, profile=None):
     return sampled_ms / 1000.0
 
 
+_mouse_button_pressed = False
+
+
 def mouseDown(button='left', delay=0.03, jitter=0.04):
+    global _mouse_button_pressed
     _fail_safe_check()
+    # Safety: release any stuck button before pressing again
+    if _mouse_button_pressed:
+        try:
+            _get_bridge().mouse_release(button=button)
+        except Exception:
+            pass
+        time.sleep(0.01)
     try:
         _get_bridge().mouse_press(button=button)
+        _mouse_button_pressed = True
     except ESP32S3BridgeError:
         raise
     except Exception as e:
@@ -254,16 +266,18 @@ def mouseDown(button='left', delay=0.03, jitter=0.04):
 
 
 def mouseUp(button='left', delay=0.03, jitter=0.05):
+    global _mouse_button_pressed
     _fail_safe_check()
     for attempt in range(3):
         try:
             _get_bridge().mouse_release(button=button)
+            _mouse_button_pressed = False
             break
-        except ESP32S3BridgeError:
-            raise
         except Exception as e:
             print(f"[click] mouseUp failed (attempt {attempt + 1}): {e}")
             time.sleep(0.05)
+    else:
+        _mouse_button_pressed = False  # Clear state even if all retries failed
     if delay > 0:
         _human_delay(delay, delay + max(0.0, jitter))
     _fail_safe_check()
@@ -344,16 +358,53 @@ def _bridge_min_step_interval():
     return 0.008
 
 
-def _sync_hid_position(target_x, target_y):
-    """Force a HID input event so the game registers the cursor position.
+def _sync_hid_position(target_x, target_y, tsize=(5.0, 5.0)):
+    """Smooth micro-correction for remaining drift after trajectory.
 
-    The game reads from raw HID input, so a no-op nudge ensures the most
-    recent relative deltas have been seen. We deliberately skip SetCursorPos
-    so we do not stomp on the human-like trajectory that just landed.
+    Only corrects if the cursor is significantly off-target (beyond half
+    the target size).  The correction is split into small steps with
+    realistic inter-step timing so it looks like a natural micro-
+    adjustment rather than a teleport.
     """
-    bridge = _get_bridge()
-    bridge.mouse_move_relative(1, 0)
-    bridge.mouse_move_relative(-1, 0)
+    final_pos = get_position()
+    err_x = int(target_x) - final_pos[0]
+    err_y = int(target_y) - final_pos[1]
+
+    # Threshold: half the target dimension — don't correct small scatter
+    half_w = max(float(tsize[0]), 4.0) / 2.0
+    half_h = max(float(tsize[1]), 4.0) / 2.0
+
+    if abs(err_x) <= half_w and abs(err_y) <= half_h:
+        # Already within target area — just nudge so the game registers
+        bridge = _get_bridge()
+        bridge.mouse_move_relative(1, 0)
+        bridge.mouse_move_relative(-1, 0)
+        return
+
+    scale = float(_POINTER_STATE["scale"]) if _POINTER_STATE["scale"] != 0 else 1.0
+    raw_dx = err_x / scale
+    raw_dy = err_y / scale
+
+    # Split into small steps (max ~8px per step) for smooth correction
+    total_raw = math.hypot(raw_dx, raw_dy)
+    if total_raw < 1.0:
+        return
+    n_steps = max(2, int(math.ceil(total_raw / 8.0)))
+    step_interval = random.uniform(0.004, 0.009)
+
+    emitted_x, emitted_y = 0.0, 0.0
+    for i in range(n_steps):
+        frac = (i + 1) / n_steps
+        target_cumul_x = raw_dx * frac
+        target_cumul_y = raw_dy * frac
+        step_x = int(round(target_cumul_x - emitted_x))
+        step_y = int(round(target_cumul_y - emitted_y))
+        if step_x != 0 or step_y != 0:
+            _emit_rel_open_loop(None, step_x, step_y)
+            emitted_x += step_x
+            emitted_y += step_y
+        if i < n_steps - 1:
+            time.sleep(step_interval)
 
 
 def moveTo(x, y, duration=0, delay=0.0, tsize=(5.0, 5.0), offset_x=0, offset_y=0, curve=0.8, n_sub=None, inertia=False):
@@ -407,7 +458,7 @@ def moveTo(x, y, duration=0, delay=0.0, tsize=(5.0, 5.0), offset_x=0, offset_y=0
         _fail_safe_check()
 
     update_inertia(raw_path, times)
-    _sync_hid_position(end_x, end_y)
+    _sync_hid_position(end_x, end_y, tsize=tsize)
 
 
 def click(x=None, y=None, button='left', clicks=1, interval=0.15, duration=0.0, tsize=(5.0, 5.0), delay=0.03):
