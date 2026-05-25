@@ -6,7 +6,7 @@
 
 ---
 
-## 🛠️ Bot Features (Software & Hardware)
+## Bot Features (Software & Hardware)
 
 - **Complete Automation:** Fully autonomous Mirror Dungeon Normal/Hard modes and Luxcavation farming.
 - **Hardware-Level Input Emulation:** Emulates actual mouse and keyboard signals using an **ESP32-S3** board. Bypasses software-level anti-cheat detection entirely.
@@ -17,7 +17,7 @@
 
 ---
 
-## 🥇 Setup ESP32-S3 (USB HID Combo)
+## Setup ESP32-S3 (USB HID Combo)
 
 *This project requires an ESP32-S3 board. A single USB cable handles power, serial commands, and emulation signals.*
 
@@ -46,7 +46,7 @@ The onboard WS2812 RGB LED (typically Pin 48) displays status codes:
 2. Connect your flashed ESP32-S3 board to your PC via USB.
 3. Keep **Limbus Company** running in the foreground (English language, 16:9 ratio, windowed/fullscreen `1920x1080` strongly recommended).
 4. Launch `app.exe` (standard windowed application) or `app_debug.exe` (windowed with console output).
-5. The application will auto-detect the board's COM port. If detection fails, select it manually (saved to `esp32_config.json`).
+5. The application will auto-detect the board's COM port on startup. If detection fails, you can enter the COM port manually in the dialog box.
 6. Select your farming configuration and click **Start**.
 
 ### For Developers
@@ -63,11 +63,7 @@ The onboard WS2812 RGB LED (typically Pin 48) displays status codes:
 
 ---
 
-## 🛠️ Diagnostics, Utilities & Build Tools
-
-### Diagnostic Scripts
-* **[test_esp32s3.py](file:///C:/Users/Colors/Documents/GitHub/Activision/test_esp32s3.py)**: Direct command-line utility to test serial communication with the ESP32-S3. Validates ping response, queries USB status, and tests mouse/keyboard inputs.
-* **[debug_hid.py](file:///C:/Users/Colors/Documents/GitHub/Activision/debug_hid.py)**: Low-level diagnostic utility to troubleshoot raw HID Vendor report communication using the `hidapi` library.
+## Diagnostics, Utilities & Build Tools
 
 ### Analytics Tool
 * **[stats.py](file:///C:/Users/Colors/Documents/GitHub/Activision/stats.py)**: Analytical script that parses `game.log` (generated during bot runs) and compiles performance statistics into `game.csv`. Calculates average/median completion times per floor, battle duration breakdowns, and team composition efficiency.
@@ -79,7 +75,7 @@ The onboard WS2812 RGB LED (typically Pin 48) displays status codes:
 
 ---
 
-## ⚠️ Requirements & Best Practices
+## Requirements & Best Practices
 
 * **Do Not Minimize the Game:** The bot grabs pixels from the active window to navigate (implemented in [os_windows_backend.py](file:///C:/Users/Colors/Documents/GitHub/Activision/source/utils/os_windows_backend.py)). Keeping the window visible and un-obscured is necessary.
 * **Play in English, 1920x1080:** Coordinate mapping and image-matching models are mathematically calibrated for the default 16:9 English UI layout. Other resolutions or text modifications might lead to misclicks.
@@ -87,7 +83,7 @@ The onboard WS2812 RGB LED (typically Pin 48) displays status codes:
 
 ---
 
-## 📜 License & Credits
+## License & Credits
 
 This project operates under the **GNU General Public License v3.0**. See the `LICENSE` file for details.
 

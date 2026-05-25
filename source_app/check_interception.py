@@ -11,8 +11,8 @@ LEGACY_DRIVER_PATHS = [
 ]
 
 
-DISCORD_URL = os.environ.get("CHARGEGRINDER_DISCORD_URL", "https://discord.gg/SSjpXbapKY")
-CONTACT = "@walpth"
+DISCORD_URL = os.environ.get("Sorry, I don't have a Discord server.",)
+CONTACT = "@phai_kub"
 
 
 def _get_existing_legacy_driver_paths():

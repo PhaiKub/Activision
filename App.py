@@ -563,7 +563,7 @@ class MyApp(QWidget):
         self.buttons = {
             'update': CustomButton(self, {
                 'geometry': (202, 24, 298, 53),
-                'click_handler': lambda: webbrowser.open('https://github.com/Walpth/Charge-Grinder/releases/latest'),
+                'click_handler': lambda: webbrowser.open('https://github.com/PhaiKub/Activision/releases/latest'),
                 'checkable': True,
                 'checked': True,
                 'icon': Bot.APP_PTH['update'],
@@ -672,7 +672,7 @@ class MyApp(QWidget):
                 'geometry': (615, 33, 35, 35),
                 'glow': Bot.APP_PTH['me'],
                 'glow_geometry': (610, 26, 47, 47),
-                'click_handler': lambda: webbrowser.open('https://github.com/Walpth/Charge-Grinder')
+                'click_handler': lambda: webbrowser.open('https://github.com/PhaiKub')
             })
         }
         all_buttons = self._get_keyword_icon() + self._get_button_affinity() + self._get_button_selected() + self._get_button_keyword()
