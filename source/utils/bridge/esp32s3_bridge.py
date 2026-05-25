@@ -393,7 +393,6 @@ class ESP32S3Bridge:
         finally:
             try:
                 if self._serial:
-                    
                     self._serial.timeout = old_timeout
             except Exception:
                 pass
@@ -493,7 +492,7 @@ class ESP32S3Bridge:
     def mouse_release(self, button="left"):
         self._send(f"U {self._button_code(button)}", wait_ack=False)
 
-    def mouse_click(self, button="left", delay_ms=30):
+    def mouse_click(self, button="left"):
         self._send(f"C {self._button_code(button)}", wait_ack=False)
 
     def mouse_scroll(self, wheel):
@@ -513,7 +512,9 @@ class ESP32S3Bridge:
     def key_tap(self, key, delay_ms=35):
         self.key_press(key)
         time.sleep(delay_ms / 1000.0)
-        self.key_release_all()
+        # Release only the key we pressed — release_all() would clobber
+        # any modifier the caller is intentionally holding.
+        self.key_release(key)
 
     def key_multi_press(self, keys):
         for key in keys:

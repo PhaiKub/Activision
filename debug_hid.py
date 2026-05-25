@@ -34,7 +34,7 @@ if not path:
     print("X Vendor HID not found")
     sys.exit(1)
 
-print(f"2. Opening vendor HID\n")
+print("2. Opening vendor HID\n")
 dev = hid.device()
 dev.open_path(path)
 

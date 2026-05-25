@@ -82,7 +82,7 @@ def countdown(seconds): # no more than 99 seconds!
 
 def pause(other_win=None):
     print(f"Switched to window: {other_win}")
-    logging.info(f"Execution paused")
+    logging.info("Execution paused")
     if hasattr(gui, "restore_mouse_settings"):
         try:
             gui.restore_mouse_settings()
@@ -611,11 +611,11 @@ class LocatePreset:
 
                     if not result:
                         # Button disappeared + verifier false — unrecoverable
-                        raise RuntimeError(f"Click retry failed")
+                        raise RuntimeError("Click retry failed")
                 else:
                     break  # verifier passed
             else:
-                raise RuntimeError(f"Verification failed after 3 retries.")
+                raise RuntimeError("Verification failed after 3 retries.")
         return result
 
 

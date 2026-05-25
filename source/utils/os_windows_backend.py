@@ -3,13 +3,12 @@ from ctypes import wintypes
 import time
 import math
 import random
-import os
 import threading
 
 import numpy as np
 
 import source.utils.params as p
-from source.utils.profiles import get_macro_profile, maybe_rhythm_jitter, randomize_with_profile
+from source.utils.profiles import get_macro_profile, randomize_with_profile
 from source.utils.movement.builder import build_trajectory
 from source.utils.movement.inertia import get_inherited_velocity, update_inertia
 from source.utils.movement.pointer_gain import update_pointer_scale, execute_trajectory, _POINTER_STATE
@@ -36,21 +35,16 @@ def _get_bridge():
         return _bridge
 
 
-_mouse_settings_active = False
-
-
-def _ensure_mouse_settings():
-    """No-op for ESP32 bridge — mouse acceleration settings are not applicable."""
-    global _mouse_settings_active
-    if _mouse_settings_active:
-        return
-    _mouse_settings_active = True
+_mouse_button_pressed = False
 
 
 def restore_mouse_settings():
-    """No-op for ESP32 bridge — mouse acceleration settings are not applicable."""
-    global _mouse_settings_active
-    _mouse_settings_active = False
+    """No-op for ESP32 bridge — mouse acceleration settings are not applicable.
+
+    Kept as a public symbol because callers (e.g. pause/close paths) probe
+    for it via hasattr().
+    """
+    return
 
 
 class BITMAPINFOHEADER(ctypes.Structure):
@@ -240,9 +234,6 @@ def _sample_hold_seconds(kind, profile=None):
     return sampled_ms / 1000.0
 
 
-_mouse_button_pressed = False
-
-
 def mouseDown(button='left', delay=0.03, jitter=0.04):
     global _mouse_button_pressed
     _fail_safe_check()
@@ -268,16 +259,26 @@ def mouseDown(button='left', delay=0.03, jitter=0.04):
 def mouseUp(button='left', delay=0.03, jitter=0.05):
     global _mouse_button_pressed
     _fail_safe_check()
+    last_exc = None
     for attempt in range(3):
         try:
             _get_bridge().mouse_release(button=button)
             _mouse_button_pressed = False
+            last_exc = None
             break
+        except ESP32S3BridgeError:
+            # Don't retry — bridge is gone, surface immediately so the
+            # caller can stop and prompt for reconnection.
+            _mouse_button_pressed = False
+            raise
         except Exception as e:
+            last_exc = e
             print(f"[click] mouseUp failed (attempt {attempt + 1}): {e}")
             time.sleep(0.05)
     else:
         _mouse_button_pressed = False  # Clear state even if all retries failed
+        if last_exc is not None:
+            print(f"[click] mouseUp giving up after retries: {last_exc}")
     if delay > 0:
         _human_delay(delay, delay + max(0.0, jitter))
     _fail_safe_check()

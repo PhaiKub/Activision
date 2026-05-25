@@ -29,6 +29,9 @@
  *   A         — release all keys
  *   P         — ping (returns PONG)
  *   Q         — query USB HID status
+ *
+ * Only P and Q return text. All input commands are silent to keep the
+ * USB CDC TX buffer from filling up under high-frequency traffic.
  */
 
 #include "USB.h"
@@ -142,13 +145,15 @@ void processCommand(const char *cmd, uint8_t len) {
         Mouse.move(atoi(cmd + sp1 + 1), atoi(cmd + sp2 + 1), 0);
         return;  // No "OK" — mouse moves are too frequent, would overflow output buffer
     }
-    case 'C': Mouse.click(getBtn(parseIntAt(cmd, 2))); return;   // No "OK" — high frequency
-    case 'D': Mouse.press(getBtn(parseIntAt(cmd, 2))); return;   // No "OK" — high frequency
-    case 'U': Mouse.release(getBtn(parseIntAt(cmd, 2))); return; // No "OK" — high frequency
-    case 'S': Mouse.move(0, 0, parseIntAt(cmd, 2)); return;      // No "OK" — high frequency
-    case 'K': Keyboard.press((uint8_t)parseIntAt(cmd, 2)); break;
-    case 'R': Keyboard.release((uint8_t)parseIntAt(cmd, 2)); break;
-    case 'A': Keyboard.releaseAll(); break;
+    case 'C': Mouse.click(getBtn(parseIntAt(cmd, 2))); return;
+    case 'D': Mouse.press(getBtn(parseIntAt(cmd, 2))); return;
+    case 'U': Mouse.release(getBtn(parseIntAt(cmd, 2))); return;
+    case 'S': Mouse.move(0, 0, parseIntAt(cmd, 2)); return;
+    // Keyboard commands also stay silent: even slow drains of "OK" responses
+    // can saturate the CDC TX buffer when many keys are pressed in a row.
+    case 'K': Keyboard.press((uint8_t)parseIntAt(cmd, 2)); return;
+    case 'R': Keyboard.release((uint8_t)parseIntAt(cmd, 2)); return;
+    case 'A': Keyboard.releaseAll(); return;
     case 'P': Serial.println("PONG"); return;
     case 'Q': Serial.println(usbReady ? "USB:1" : "USB:0"); return;
     default:
@@ -156,8 +161,6 @@ void processCommand(const char *cmd, uint8_t len) {
         Serial.println("ERR");
         return;
     }
-    // Only keyboard commands (K, R, A) send OK — they are infrequent enough
-    Serial.println("OK");
 }
 
 // ──── Setup ────
@@ -213,6 +216,4 @@ void loop() {
         currentLedState = LED_READY;
         everConnected = false;
     }
-
-    delay(1);
 }
