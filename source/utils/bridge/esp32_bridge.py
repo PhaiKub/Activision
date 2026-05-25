@@ -9,7 +9,7 @@ defined in esp32s3_usb_hid.ino:
     D btn     — mouse button down
     U btn     — mouse button up
     S wheel   — scroll
-    K code    — key press  (HID usage-code decimal)
+    K code    — key press  (Arduino USBHIDKeyboard value)
     R code    — key release
     A         — release all keys
     P         — ping  → PONG
@@ -22,7 +22,7 @@ import threading
 import time
 import logging
 
-from source.utils.bridge.bridge import KEY_CODES, MOUSE_BUTTONS, BridgeError
+from source.utils.bridge.bridge import BridgeError
 
 
 # ── Constants ────────────────────────────────────────────────────────────────
@@ -31,6 +31,110 @@ DEFAULT_BAUD     = 115200
 PING_TIMEOUT     = 1.5      # seconds to wait for PONG
 SCAN_TIMEOUT     = 1.2      # seconds per port while scanning
 CMD_TIMEOUT      = 2.0      # seconds to wait for OK/ERR after command
+
+
+# ── Key code table for Arduino USBHIDKeyboard ─────────────────────────────────
+#
+# Arduino USBHIDKeyboard.press(uint8_t k) accepts:
+#   • Printable ASCII (0x20–0x7E)  → send the ASCII value directly
+#   • Special keys defined as KEY_* constants (0x80+) from USBHIDKeyboard.h
+#
+# These are DIFFERENT from HID usage codes used by the Ghub bridge.dll.
+
+# Arduino USBHIDKeyboard.h special-key constants
+_KEY_RETURN      = 0xB0
+_KEY_ESC         = 0xB1
+_KEY_BACKSPACE   = 0xB2
+_KEY_TAB         = 0xB3
+_KEY_UP          = 0xDA
+_KEY_DOWN        = 0xD9
+_KEY_LEFT        = 0xD8
+_KEY_RIGHT       = 0xD7
+_KEY_INSERT      = 0xD1
+_KEY_DELETE      = 0xD4
+_KEY_HOME        = 0xD2
+_KEY_END         = 0xD5
+_KEY_PAGE_UP     = 0xD3
+_KEY_PAGE_DOWN   = 0xD6
+_KEY_CAPS_LOCK   = 0xC1
+_KEY_LEFT_CTRL   = 0x80
+_KEY_LEFT_SHIFT  = 0x81
+_KEY_LEFT_ALT    = 0x82
+_KEY_LEFT_GUI    = 0x83
+_KEY_RIGHT_CTRL  = 0x84
+_KEY_RIGHT_SHIFT = 0x85
+_KEY_RIGHT_ALT   = 0x86
+_KEY_RIGHT_GUI   = 0x87
+_KEY_F1          = 0xC2
+_KEY_F2          = 0xC3
+_KEY_F3          = 0xC4
+_KEY_F4          = 0xC5
+_KEY_F5          = 0xC6
+_KEY_F6          = 0xC7
+_KEY_F7          = 0xC8
+_KEY_F8          = 0xC9
+_KEY_F9          = 0xCA
+_KEY_F10         = 0xCB
+_KEY_F11         = 0xCC
+_KEY_F12         = 0xCD
+
+ESP32_KEY_CODES = {
+    # ── Letters (ASCII lowercase — Keyboard lib handles shift internally) ──
+    **{ch: ord(ch) for ch in "abcdefghijklmnopqrstuvwxyz"},
+    # ── Digits ──
+    **{str(d): ord(str(d)) for d in range(10)},
+    # ── Printable punctuation / symbols (ASCII) ──
+    "space":   0x20,
+    "-":       ord("-"),
+    "equal":   ord("="),
+    "[": ord("["), "]": ord("]"),
+    "\\": ord("\\"),
+    ";": ord(";"),
+    "quote":   ord("'"),
+    "`":       ord("`"),
+    ",":       ord(","),
+    ".":       ord("."),
+    "/":       ord("/"),
+    # ── Special keys ──
+    "enter":      _KEY_RETURN,
+    "return":     _KEY_RETURN,
+    "esc":        _KEY_ESC,
+    "escape":     _KEY_ESC,
+    "backspace":  _KEY_BACKSPACE,
+    "tab":        _KEY_TAB,
+    "up":         _KEY_UP,
+    "down":       _KEY_DOWN,
+    "left":       _KEY_LEFT,
+    "right":      _KEY_RIGHT,
+    "insert":     _KEY_INSERT,
+    "delete":     _KEY_DELETE,
+    "del":        _KEY_DELETE,
+    "home":       _KEY_HOME,
+    "end":        _KEY_END,
+    "pageup":     _KEY_PAGE_UP,
+    "pgup":       _KEY_PAGE_UP,
+    "pagedown":   _KEY_PAGE_DOWN,
+    "pgdn":       _KEY_PAGE_DOWN,
+    "capslock":   _KEY_CAPS_LOCK,
+    # ── Modifiers ──
+    "ctrl":       _KEY_LEFT_CTRL,
+    "lctrl":      _KEY_LEFT_CTRL,
+    "shift":      _KEY_LEFT_SHIFT,
+    "lshift":     _KEY_LEFT_SHIFT,
+    "alt":        _KEY_LEFT_ALT,
+    "lalt":       _KEY_LEFT_ALT,
+    "win":        _KEY_LEFT_GUI,
+    "lwin":       _KEY_LEFT_GUI,
+    "rctrl":      _KEY_RIGHT_CTRL,
+    "rshift":     _KEY_RIGHT_SHIFT,
+    "ralt":       _KEY_RIGHT_ALT,
+    "rwin":       _KEY_RIGHT_GUI,
+    # ── Function keys ──
+    "f1":  _KEY_F1,  "f2":  _KEY_F2,  "f3":  _KEY_F3,
+    "f4":  _KEY_F4,  "f5":  _KEY_F5,  "f6":  _KEY_F6,
+    "f7":  _KEY_F7,  "f8":  _KEY_F8,  "f9":  _KEY_F9,
+    "f10": _KEY_F10, "f11": _KEY_F11, "f12": _KEY_F12,
+}
 
 
 # ── ESP32Bridge ───────────────────────────────────────────────────────────────
@@ -191,9 +295,9 @@ class ESP32Bridge:
     @staticmethod
     def _key_code(key: str) -> int:
         lowered = key.lower()
-        if lowered not in KEY_CODES:
+        if lowered not in ESP32_KEY_CODES:
             raise BridgeError(f"Unsupported key: {key!r}")
-        return KEY_CODES[lowered]
+        return ESP32_KEY_CODES[lowered]
 
     @staticmethod
     def _button_code(button: str) -> int:
