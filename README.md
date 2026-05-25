@@ -6,16 +6,8 @@
 
 ---
 
-## 🤖 Features
-
-- **Complete Automation:** Fully autonomous Mirror Dungeon (Normal/Hard) and Luxcavation farming.
-- **Hardware-Level Input Emulation:** Mouse and keyboard signals are emulated by a physical **ESP32-S3** board over USB HID, bypassing software-level anti-cheat entirely.
-- **Built-in Firmware Flasher:** The app detects the ESP32-S3 automatically on startup. If no firmware is found, a one-click **⚡ Flash Firmware** button flashes the firmware directly from the app — no Arduino IDE required at runtime.
-- **Auto Version Check:** The app checks GitHub Releases on startup and shows an update button when a newer version is available.
-- **Dynamic Team Composition:** Configure custom team synergies, affinity priorities, and win-rates through the built-in manager.
-- **Human-Like Behavior Profiles:** Cursor movement curves, coordinate jittering, and rhythm variance to avoid robotic input signatures.
-- **Modern GUI:** Built with PySide6 for intuitive setup, config editing, and log viewing.
-- **Auto-Recovery:** Detects disconnections or game errors, restarts automatically, and shuts down safely when out of Enkephalin.
+## pls Donate me
+[https://ko-fi.com/phaikub](https://ko-fi.com/phaikub). OR [https://easydonate.app/phaikub_990l](https://easydonate.app/phaikub_990l)
 
 ---
 
