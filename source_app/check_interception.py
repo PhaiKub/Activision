@@ -161,10 +161,17 @@ class ESP32ScanDialog(QWidget):
 
         row_layout.addWidget(QLabel("🔵 USB port:"))
 
-        self._port_input = QLineEdit()
-        self._port_input.setPlaceholderText("e.g. COM5")
-        self._port_input.setFixedWidth(90)
-        row_layout.addWidget(self._port_input)
+        self._port_combo = QComboBox()
+        self._port_combo.setFixedWidth(110)
+        self._port_combo.setEditable(True)
+        self._port_combo.lineEdit().setPlaceholderText("Select port")
+        row_layout.addWidget(self._port_combo)
+
+        _refresh_usb_btn = QPushButton("🔄")
+        _refresh_usb_btn.setFixedWidth(28)
+        _refresh_usb_btn.setToolTip("Refresh port list")
+        _refresh_usb_btn.clicked.connect(self._refresh_ports)
+        row_layout.addWidget(_refresh_usb_btn)
 
         self._retry_btn = QPushButton("Connect")
         self._retry_btn.setFixedWidth(80)
@@ -180,17 +187,24 @@ class ESP32ScanDialog(QWidget):
         layout.addWidget(self._manual_row)
         self._manual_row.hide()
 
-        # Flash firmware row (shown when scan fails and .bin exists)
+        # Flash firmware row (shown when scan fails)
         self._flash_row = QWidget()
         flash_layout = QHBoxLayout(self._flash_row)
         flash_layout.setContentsMargins(0, 0, 0, 0)
         flash_layout.setSpacing(8)
 
         flash_layout.addWidget(QLabel("🟡 COM port:"))
-        self._flash_port_input = QLineEdit()
-        self._flash_port_input.setPlaceholderText("e.g. COM5")
-        self._flash_port_input.setFixedWidth(90)
-        flash_layout.addWidget(self._flash_port_input)
+        self._flash_port_combo = QComboBox()
+        self._flash_port_combo.setFixedWidth(110)
+        self._flash_port_combo.setEditable(True)
+        self._flash_port_combo.lineEdit().setPlaceholderText("Select port")
+        flash_layout.addWidget(self._flash_port_combo)
+
+        _refresh_com_btn = QPushButton("🔄")
+        _refresh_com_btn.setFixedWidth(28)
+        _refresh_com_btn.setToolTip("Refresh port list")
+        _refresh_com_btn.clicked.connect(self._refresh_ports)
+        flash_layout.addWidget(_refresh_com_btn)
 
         self._flash_btn = QPushButton("⚡ Flash Firmware")
         self._flash_btn.setFixedWidth(130)
@@ -207,6 +221,28 @@ class ESP32ScanDialog(QWidget):
         self._status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._status.setStyleSheet("color: #cccccc; font-size: 10px;")
         layout.addWidget(self._status)
+
+    # ── Port helpers ───────────────────────────────────────
+
+    def _refresh_ports(self):
+        """Populate both COM-port comboboxes from the current system port list."""
+        try:
+            from serial.tools.list_ports import comports
+            ports = sorted(p.device for p in comports())
+        except Exception:
+            ports = []
+
+        for combo in (self._port_combo, self._flash_port_combo):
+            current = combo.currentText()
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItems(ports)
+            # restore previous selection if still valid
+            if current in ports:
+                combo.setCurrentText(current)
+            elif ports:
+                combo.setCurrentIndex(0)
+            combo.blockSignals(False)
 
     # ── Scan logic ────────────────────────────────────────────
 
@@ -248,7 +284,7 @@ class ESP32ScanDialog(QWidget):
     # ── Manual connect ────────────────────────────────────────
 
     def _on_manual_connect(self):
-        port = self._port_input.text().strip()
+        port = self._port_combo.currentText().strip()
         if not port:
             self._status.setText("⚠  Enter a COM port first.")
             return
@@ -294,6 +330,7 @@ class ESP32ScanDialog(QWidget):
         self._title.setText("❌  ESP32-S3 Not Found")
         self._log.setText(error)
         self._log.setStyleSheet("color: #ff7070; padding: 6px; background: #1f0d0d; border-radius: 4px;")
+        self._refresh_ports()   # populate dropdowns before showing rows
         self._manual_row.show()
         self._flash_row.show()
         self._status.setText(
@@ -304,7 +341,7 @@ class ESP32ScanDialog(QWidget):
     # ── Flash firmware ────────────────────────────────────────
 
     def _on_flash_btn(self):
-        port = self._flash_port_input.text().strip()
+        port = self._flash_port_combo.currentText().strip()
         if not port:
             self._status.setText("⚠  Enter the COM port for flashing first.")
             return
@@ -334,40 +371,64 @@ class ESP32ScanDialog(QWidget):
         t.start()
 
     def _flash_worker(self, port: str, bin_path: str):
-        import subprocess, sys, os
+        import sys, os
+
+        # ── Live-output stream that forwards lines to the UI signal ──────────
+        class _Emitter:
+            def __init__(self, sig):
+                self._sig = sig
+                self._buf = ""
+            def write(self, text):
+                self._buf += text
+                while "\n" in self._buf:
+                    line, self._buf = self._buf.split("\n", 1)
+                    line = line.rstrip("\r")
+                    if line:
+                        self._sig.emit(line)
+            def flush(self):
+                pass
+
+        emitter = _Emitter(self._sig_flash_log)
+        old_out, old_err = sys.stdout, sys.stderr
+        sys.stdout = emitter
+        sys.stderr = emitter
+
         try:
-            # bin_path is a merged binary (bootloader+partitions+app combined)
-            # produced by build_firmware.py using esptool merge_bin → flash at 0x0
-            cmd = [
-                sys.executable, "-m", "esptool",
-                "--chip", "esp32s3",
-                "--port", port,
-                "--baud", "921600",
+            import esptool  # bundled via --include-package=esptool in nuitka
+            self._sig_flash_log.emit(
+                f"Flashing {os.path.basename(bin_path)} → {port} (baud 921600)"
+            )
+            esptool.main([
+                "--chip",       "esp32s3",
+                "--port",       port,
+                "--baud",       "921600",
                 "write_flash",
                 "--flash_mode", "dio",
                 "--flash_freq", "80m",
                 "--flash_size", "detect",
-                "0x0", bin_path,
-            ]
-            self._sig_flash_log.emit(f"Flashing {os.path.basename(bin_path)} → {port}")
-            proc = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, bufsize=1
-            )
-            for line in proc.stdout:
-                line = line.rstrip()
-                if line:
-                    self._sig_flash_log.emit(line)
-            proc.wait()
-            if proc.returncode == 0:
+                "0x0",          bin_path,
+            ])
+            # esptool.main() calls sys.exit(0) on success — caught below
+            sys.stdout, sys.stderr = old_out, old_err
+            self._sig_flash_done.emit(True, port)
+
+        except SystemExit as e:
+            sys.stdout, sys.stderr = old_out, old_err
+            if e.code == 0 or e.code is None:
                 self._sig_flash_done.emit(True, port)
             else:
-                self._sig_flash_done.emit(False, f"esptool exited with code {proc.returncode}")
-        except FileNotFoundError:
+                self._sig_flash_done.emit(False, f"esptool exited with code {e.code}")
+
+        except ImportError:
+            sys.stdout, sys.stderr = old_out, old_err
             self._sig_flash_done.emit(False,
-                "esptool not found. Install with:  pip install esptool")
+                "esptool module not found.\n"
+                "Run:  pip install esptool  then rebuild the app.")
+
         except Exception as exc:
+            sys.stdout, sys.stderr = old_out, old_err
             self._sig_flash_done.emit(False, str(exc))
+
 
     @pyqtSlot(str)
     def _on_flash_log(self, line: str):

@@ -113,25 +113,6 @@ To build standalone executables:
 .\run-build-windows.ps1
 ```
 
----
-
-## 🛠️ Utilities
-
-| Script | Description |
-|--------|-------------|
-| [`stats.py`](stats.py) | Parses `game.log` → `game.csv` with floor times, battle durations, and team efficiency stats |
-| [`esp32_firmware/build_firmware.py`](esp32_firmware/build_firmware.py) | Compiles `.ino` via `arduino-cli` and merges bootloader + partitions + app into a single flashable `.bin` |
-| [`run-build-windows.ps1`](run-build-windows.ps1) | Builds `app.exe` and `app_debug.exe` via Nuitka |
-
----
-
-## ⚠️ Requirements & Best Practices
-
-- **Do not minimize the game window.** The bot reads pixels from the active window — keep it visible and unobscured.
-- **Use English, 1920×1080.** All coordinates and image templates are calibrated for the default 16:9 English layout.
-- **Disable UI mods.** Any mod that alters game text, speech bubbles, or interface layout will break image recognition.
-
----
 
 ## 📜 License & Credits
 
