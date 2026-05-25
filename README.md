@@ -1,273 +1,95 @@
 <div align="center">
-<!-- <a href="https://github.com/Walpth/Charge-Grinder/releases/latest/download/app.exe">
-  <img alt="Download" src="https://img.shields.io/badge/app.exe-Download-blue.svg">
-</a> -->
-<img alt="version" src="https://img.shields.io/github/v/release/Walpth/Charge-Grinder">
-<img alt="download" src="https://img.shields.io/github/downloads/Walpth/Charge-Grinder/total">
-<img alt="language" src="https://img.shields.io/badge/Language-Python-blue">
-<img alt="platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-blue">
+  <h1>Charge-Grinder — ESP32-S3 USB HID Edition</h1>
+  <p><b>An advanced, hardware-emulated automation bot for Limbus Company.</b></p>
+  <p><i>Forked and heavily modified from <a href="https://github.com/Walpth/Charge-Grinder">Walpth/Charge-Grinder</a></i></p>
 </div>
-<div align="center"> 
-<a href="https://www.paypal.com/ncp/payment/98WFWFCUHLQML">
-  <img src="https://img.shields.io/badge/Support-PayPal-blue.svg?logo=paypal" alt="PayPal Donate" />
-</a>
-<a href="https://github.com/sponsors/Walpth">
-  <img src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-lightgrey?logo=github" alt="GitHub Sponsors" />
-</a>
-</div>
-<p align="center" > You can contact me on Discord: @walpth</p>
-
-```
-                   ________                             ______     _           __         
-                  / ____/ /_  ____ __________ ____     / ____/____(_)___  ____/ /__  _____
-                 / /   / __ \/ __ `/ ___/ __ `/ _ \   / / __/ ___/ / __ \/ __  / _ \/ ___/
-                / /___/ / / / /_/ / /  / /_/ /  __/  / /_/ / /  / / / / / /_/ /  __/ /    
-                \____/_/ /_/\__,_/_/   \__, /\___/   \____/_/  /_/_/ /_/\__,_/\___/_/     
-                                      /____/
-
-                          A Limbus Company bot that charges through MD6 for you
-```
 
 ---
 
-<img align="left" src="ImageAssets/readme/preview.png" width="55%">
+## 🛠️ Bot Features (Software & Hardware)
 
-  - ### ⚡ Speed
-  A **Normal MD6** run lasts between **23-25 minutes**.
-  And it takes **35-45 minutes** for one **Hard MD** run with a Rupture team.
+- **Complete Automation:** Fully autonomous Mirror Dungeon Normal/Hard modes and Luxcavation farming.
+- **Hardware-Level Input Emulation:** Emulates actual mouse and keyboard signals using an **ESP32-S3** board. Bypasses software-level anti-cheat detection entirely.
+- **Dynamic Team Composition:** Configure custom team synergies, affinity priorities, and win-rates using a built-in manager.
+- **Human-Like Behavior Profiles:** Integrated cursor movement curves, coordinate jittering, and rhythm variance ([source/utils/profiles.py](file:///C:/Users/Colors/Documents/GitHub/Activision/source/utils/profiles.py)) to avoid robotic input signatures.
+- **Modern GUI Interface:** Built using PySide6 ([App.py](file:///C:/Users/Colors/Documents/GitHub/Activision/App.py)) for an intuitive setup, configurations editor, and log viewing.
+- **Auto-Recovery:** Detects disconnections or game errors, automatically restarts or recovers processes, and safely shuts down if out of Enkephalin.
 
-  - ### Starts from any moment of MD exploration
+---
 
-  - ### Restarts if run fails
-  If all selected sinners are dead, the bot (with default settings) will restart the run.
+## 🥇 Setup ESP32-S3 (USB HID Combo)
 
-  - ### Reclicks if action failed
-    Sometimes timings mess up, so in order to address this issue most bot actions are verified.
+*This project requires an ESP32-S3 board. A single USB cable handles power, serial commands, and emulation signals.*
 
-  - ### Supports Luxcavation grind
+### 1. Flash the Firmware
+1. Open [esp32s3_usb_hid.ino](file:///C:/Users/Colors/Documents/GitHub/Activision/esp32_firmware/esp32s3_usb_hid.ino) in Arduino IDE.
+2. Configure the following board settings under the **Tools** menu:
+   - **Board:** `ESP32-S3 Dev Module`
+   - **USB Mode:** `USB-OTG (TinyUSB)` *(Critical)*
+   - **USB CDC On Boot:** `Enabled` *(Critical for COM port communication)*
+3. Click **Upload** to flash the firmware.
 
-<br clear="left" />
+### 2. LED Status Indicators
+The onboard WS2812 RGB LED (typically Pin 48) displays status codes:
+* 🟡 **Blinking Yellow:** Device booting or initializing USB drivers.
+* 🟣 **Solid Purple:** Ready (waiting for the Python host script to connect).
+* 🔵 **Solid Blue:** Active (actively receiving and executing mouse/keyboard commands).
+* 🟢 **Blinking Green:** Idle (Python script disconnected or grind finished).
+* 🔴 **Flashing Red:** Communication error (received an invalid command block).
 
-# Functionality:
+---
 
-- ## Auto-selects the team
-  ### *This means that you need to set up the correct team names in advance.*
-  ### Team Name Detection Rules
+## 🚀 Running the Bot
 
-  - The bot determines the team to select based on the **keyword icon** assigned to that team.
+### For Users
+1. Download the compiled release executable from the releases section, or compile it yourself.
+2. Connect your flashed ESP32-S3 board to your PC via USB.
+3. Keep **Limbus Company** running in the foreground (English language, 16:9 ratio, windowed/fullscreen `1920x1080` strongly recommended).
+4. Launch `app.exe` (standard windowed application) or `app_debug.exe` (windowed with console output).
+5. The application will auto-detect the board's COM port. If detection fails, select it manually (saved to `esp32_config.json`).
+6. Select your farming configuration and click **Start**.
 
-  - #### 1. Supported Keywords
-      - **Single word:**
-  
-        **SLASH, PIERCE, BLUNT,<br> BURN, BLEED, TREMOR, RUPTURE, SINKING, POISE, CHARGE,<br> WRATH, LUST, SLOTH, GLUT. , GLOOM, PRIDE, ENVY**
+### For Developers
+1. Clone the repository and install requirements:
+   ```powershell
+   git clone https://github.com/PhaiKub/Activision.git
+   cd Activision
+   pip install -r requirements.txt
+   ```
+2. Run the application GUI directly:
+   ```powershell
+   python App.py
+   ```
 
-    - **Two-word combinations:**
-      - Any combination of two of the above keywords (without `#number`) is also supported.
+---
 
-  - #### 2. Special Rules
-    - **Single-word team names** can include `#number` (e.g., `SINKING#2`).
-    - The bot scrolls through teams until it finds the **uppermost matching team**.
-    - If multiple teams share the same keyword icon (e.g., in MD runs), the bot selects the **n-th occurrence** of that keyword in your team list.
-        - **Example:** If searching for `"SINKING"` and it’s the second `"SINKING"` team in your setup, the bot will choose the **second occurrence**.  
+## 🛠️ Diagnostics, Utilities & Build Tools
 
-          <img src="ImageAssets/readme/duplicates.png" width="100%">
+### Diagnostic Scripts
+* **[test_esp32s3.py](file:///C:/Users/Colors/Documents/GitHub/Activision/test_esp32s3.py)**: Direct command-line utility to test serial communication with the ESP32-S3. Validates ping response, queries USB status, and tests mouse/keyboard inputs.
+* **[debug_hid.py](file:///C:/Users/Colors/Documents/GitHub/Activision/debug_hid.py)**: Low-level diagnostic utility to troubleshoot raw HID Vendor report communication using the `hidapi` library.
 
-  - #### 3. Fallback
-    - If no matching keyword is found, the bot defaults to the **default team**.
+### Analytics Tool
+* **[stats.py](file:///C:/Users/Colors/Documents/GitHub/Activision/stats.py)**: Analytical script that parses `game.log` (generated during bot runs) and compiles performance statistics into `game.csv`. Calculates average/median completion times per floor, battle duration breakdowns, and team composition efficiency.
 
-  ### Supported name examples:
+### Build Pipelines
+* **[run-build-windows.ps1](file:///C:/Users/Colors/Documents/GitHub/Activision/run-build-windows.ps1)**: A PowerShell helper script that invokes the Nuitka compiler through [release/windows/nuitka-windows.py](file:///C:/Users/Colors/Documents/GitHub/Activision/release/windows/nuitka-windows.py) to compile stand-alone binaries:
+  * `app.exe` — Clean standalone executable with console mode disabled.
+  * `app_debug.exe` — Debug executable with console logging visible.
 
-  <img src="ImageAssets/readme/team_names.png" width="100%">
+---
 
-- ## Rotates teams
-  <img src="ImageAssets/readme/rotation.png" width="100%">
+## ⚠️ Requirements & Best Practices
 
-  ### Upper row:
-  - *Orange* - currently displayed team
-  - *Blue* - other teams included in the rotation
-  - The rotation starts from the curretly displayed team and moves from left to right
-  ### Lower row:
-  - Affinities of the selected team
-  - Affects EGO gift team build
-  - Order matters, at least one is always selected
+* **Do Not Minimize the Game:** The bot grabs pixels from the active window to navigate (implemented in [os_windows_backend.py](file:///C:/Users/Colors/Documents/GitHub/Activision/source/utils/os_windows_backend.py)). Keeping the window visible and un-obscured is necessary.
+* **Play in English, 1920x1080:** Coordinate mapping and image-matching models are mathematically calibrated for the default 16:9 English UI layout. Other resolutions or text modifications might lead to misclicks.
+* **Disable Game UI Mods:** Mods modifying game speech bubbles, interfaces, or text localization alter the expected screen pixels and will cause OCR/pixel verification failures.
 
+---
 
-- ## Recommended Team
-  - **Normal MD:** Burn is the fastest team with average time of 22 minutes per run.  
-  - **Hard MD:** Rupture is the best team with average time of 38 minutes per run.
-  - **Extreme MD:** Both Rupture and Tremor are viable options.<br><br>
+## 📜 License & Credits
 
-  <img src="ImageAssets/readme/team.png" alt="Team" width="100%">
+This project operates under the **GNU General Public License v3.0**. See the `LICENSE` file for details.
 
-- ## Selects Floor Packs
-  <img align="left" src="ImageAssets/readme/config.png" width="55%">
-
-    ### By default:
-    - Avoids packs with high mortality rate and long fights such as:  
-      **The Noon of Violet, Murder on the WARP Express, Full-Stopped by a Bullet, Timekilling Time, Nocturnal Sweeping** and some other.
-    - Prioritizes floors with unique ego gifts such as:  
-      **The Outcast, Hell's Chicken** and some other.
-    <br>
-
-    ### You can set your own pack priority in config!
-    - ***Important note: Prioritized and Avoided packs are specific to each team.***
-    - ***There are two different configs for Normal MD and Hard MD***
-
-  <br clear="left" />
-
-- ## Selects the best next node
-  ### Bot can detect:
-
-  <img align="center" src="ImageAssets/readme/nodes.png" />
-
-  ### Time cost of each node: <p>
-  - **Event: 0s, Normal: 52s, Miniboss: 67s, Focused: 77s, Risky: 87s**
-
-  ### The bot analyzes all visible nodes and builds the fastest path:
-
-  <img align="center" src="ImageAssets/readme/paths.png" />
-
-- ## Handles battles
-  ### Normal MD:
-  - Winrates focused encounters.
-  - Chains skills 1 and 2 for human encounters. 
-  - Skill 3 animations take more time than necessary so it is best to avoid it.
-  - Doesn't use any EGO, because it is a huge time waste.<br><br>
-
-  <img src="ImageAssets/readme/skills.gif"  width='100%' />
-
-  ### Hard MD:
-  - **All battles** are winrated.
-  - If the clash is **Struggling** or **Hopeless**, the bot uses the leftmost available EGO.
-  - If a clash is **Struggling/Hopeless** and an EGO is selected, it will be replaced with a defense skill, provided there are fewer than 3 such cases.
-  - If after EGO selection there are 3 or more **Struggling/Hopeless** clashes, replaces the EGO with high-rolling alternative.<br>
-  
-  High-rolling EGO options include: <br>
-
-  ***Sunshower, Magic Bullet, Holiday, Effervescent Corrosion, Dimension Shredder, Ebony Stem, Binds, Ya Sunyata Tad Rupam, Garden of Thorns, AEDD, Lantern, Cavernous Wailing, Capote, Pursuance, Regret, Rime Shank, Wishing Cairn, Electric Screaming, 4th Match Flame, Red Eyes Open, Ardor Blossom Star, Blind Obsession, Fluid Sac, Hex Nail***
-  - If there are still 3 or more **Struggling/Hopeless** clashes, goes for Damage instead of Win Rate<br><br>
-  
-  <img src="ImageAssets/readme/ego.gif" width='100%' />
-
-- ## Fuses EGO gifts
-
-  <img align="left" src="ImageAssets/readme/gifts.png" width="49%">
-
-  ### Makes a good team affinity build in shop
-    - Fuses gifts to get powerful Tier 4s.
-    - Upties and buys affinity-related gifts.
-    - If not all gifts are visible, it can **scroll through inventory** while fusing.
-    <br><br>
-
-    **If lacking tier 4 for keyword(s):**
-    - The bot aggressively fuses the **first Tier 4 gift**, even using same-affinity gifts if needed.
-    <br><br>
-
-    **Once a tier 4 for each selected affinity is obtained:**
-    - Same-affinity gifts will **no longer be used for fusing**.
-    <br><br>
-
-    **Once the affinity build is complete:**
-    - The bot will browse the shop for **same-affinity gifts** and buy them when found.
-
-  <br clear="left" />
-
-
-# Video showcase (old version 1.0.3):
-<p align="center">
-  <a href="https://www.youtube.com/watch?v=z3zJ8AMfWpw">
-    <img src="https://img.youtube.com/vi/z3zJ8AMfWpw/maxresdefault.jpg" alt="Showcase" />
-  </a>
-</p>
-
-# User warning!
-
-This tool does not modify or access any game files and relies solely on the displayed information. <br> There have been no precedents of bans due to using this or similar tools, but I advise against excessive usage for longer than what is humanly possible. <br> I also advise against sharing your in-game ID along with the fact that you use this tool. | 
---- | 
-
-
-# Installation
-### 📦 Option 1: Run the Prebuilt Executable 
-- ## Windows
-  <!-- [![Download](https://img.shields.io/badge/app.exe-Download-blue.svg?style=for-the-badge)](https://github.com/Walpth/Charge-Grinder/releases/latest/download/app.exe) <p> -->
-  - Launch **app.exe** from [the latest release](https://github.com/Walpth/Charge-Grinder/releases/latest) - no additional files required.
-- ## Linux (X11)
-  <!-- [![Download](https://img.shields.io/badge/CGrinder.AppImage-Download-yellow.svg?style=for-the-badge)](https://github.com/Walpth/Charge-Grinder/releases/latest/download/CGrinder-x86_64.AppImage) <p> -->
-  - Wayland is currently not suppored, so you would need to run X11 session.
-  - Download AppImage from [the latest release](https://github.com/Walpth/Charge-Grinder/releases/latest).
-  - Make it executable with `chmod +x CGrinder-x86_64.AppImage`.
-
-### 🐍 Option 2: Run with Python
-Make sure you have **Python 3** installed. Then either:
-
-Windows: <br>
-`pip install -r requirements.txt`
-
-+ install interception driver
-
-Linux: <br>
-`pip install -r requirements_linux.txt`
-
-or manually install:
-- `opencv-python-headless`
-- `numpy`
-- `PySide6`
-- `python-xlib` _(Linux only)_
-- `mss` _(Linux only)_
-- `evdev` _(Linux only)_
-
-Then you can run `App.py` to launch the application.
-
-# Usage:
-
-> **Game interface must be in English!** <br> **No mods installed (e.g. speech bubbles)** <br> **HDR should probably be disabled if you have it** <br> **Make sure that the Limbus Company window is fully visible!** <br> Set the in-game resolution to **16:9** ratio (**1920x1080** is best, but **1280x720** also works)
-
-
-- You can set up sinners and other settings upon program execution. ChargeGrinder will start running in 10 seconds after that. 
-- In the meantime you should switch to the Limbus Company window. It is not recommended to move the mouse while the bot is running, but you can Alt+Tab to another window and the bot will pause.
-
-# Recommended Graphics Settings:
-
-<img align="left" src="ImageAssets/readme/fullscreen.png" width="62%">
-<h3>1920x1080</h3>
-
-- Provides the best detection result
-- If your screen is Full HD or lower with a 16:9 aspect ratio, use Fullscreen at your screen's native resolution
-- If your screen resolution is higher than Full HD, use Windowed instead
-
-<br clear="left" />
-
-<img align="left" src="ImageAssets/readme/windowed.png" width="62%">
-<h3>1280x720</h3>
-
-- The resolution I usually test new versions with (and mostly use)
-- Use windowed mode only
-
-<br clear="left" />
-
-# Run stats
-
-<img align="left" src="ImageAssets/readme/export.png" width="11%">
-
-### You can export run data from game.log file to game.csv
-
-<br clear="left" />
-
-### Example game.csv:
-| NORMAL     | BURN |
-|------------|------|
-| Avg Time   | Count|
-| 24:37      | 1    |
-
-| Fights     | Normal | Focused | Risky | Miniboss | Boss | Total  |
-|------------|--------|---------|-------|----------|------|--------|
-| Floor1     | 00:47  | none    | none  | none     | 02:20| 05:02  |
-| Floor2     | 00:44  | none    | none  | none     | 01:28| 04:29  |
-| Floor3     | 00:39  | none    | 01:08 | none     | 01:01| 04:12  |
-| Floor4     | 00:46  | none    | none  | 01:07    | 01:03| 04:17  |
-| Floor5     | 00:52  | 01:47   | none  | none     | 01:49| 06:15  |
-
-| Packs               | EmotionalRepression | AddictingLust | HellsChicken | TheOutcast | RepressedWrath |
-|---------------------|---------------------|---------------|--------------|------------|----------------|
-| Avg Time           | 04:12               | 04:17         | 04:29        | 05:02      | 06:15          |
-| Count              | 1                   | 1             | 1            | 1          | 1              |
+* **Modifications & Bridge Integration:** Developed by PhaiKub & Colors (2026). Transitioned to ESP32-S3 physical USB HID emulation, modernized the GUI layouts, and introduced human-like movement profiles.
+* **Original Groundwork:** Built upon the automation framework created by [Walpth/Charge-Grinder](https://github.com/Walpth/Charge-Grinder).
