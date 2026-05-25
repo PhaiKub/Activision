@@ -1,0 +1,6 @@
+numpy==2.2.4
+opencv-python-headless==4.10.0.84
+PySide6
+python-xlib
+evdev
+mss

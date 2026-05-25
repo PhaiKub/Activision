@@ -1,0 +1,267 @@
+"""
+ESP32Bridge — Python side of the ESP32-S3 USB HID bridge.
+
+Communicates with the ESP32-S3 over USB Serial (CDC) using the text protocol
+defined in esp32s3_usb_hid.ino:
+
+    M dx dy   — relative mouse move
+    C btn     — click  (1=left, 2=right, 3=middle)
+    D btn     — mouse button down
+    U btn     — mouse button up
+    S wheel   — scroll
+    K code    — key press  (HID usage-code decimal)
+    R code    — key release
+    A         — release all keys
+    P         — ping  → PONG
+    Q         — query USB HID status → USB:1 / USB:0
+"""
+
+import serial
+import serial.tools.list_ports
+import threading
+import time
+import logging
+
+from source.utils.bridge.bridge import KEY_CODES, MOUSE_BUTTONS, BridgeError
+
+
+# ── Constants ────────────────────────────────────────────────────────────────
+
+DEFAULT_BAUD     = 115200
+PING_TIMEOUT     = 1.5      # seconds to wait for PONG
+SCAN_TIMEOUT     = 1.2      # seconds per port while scanning
+CMD_TIMEOUT      = 2.0      # seconds to wait for OK/ERR after command
+
+
+# ── ESP32Bridge ───────────────────────────────────────────────────────────────
+
+class ESP32Bridge:
+    """
+    Drop-in replacement for Bridge (Ghub) that routes all HID events through an
+    ESP32-S3 connected via USB Serial.
+
+    Usage
+    -----
+    bridge = ESP32Bridge()          # auto-detect port
+    bridge = ESP32Bridge(port="COM5")  # explicit port
+    """
+
+    def __init__(self, port=None, baud=DEFAULT_BAUD, auto_open=True):
+        self._port   = port     # None → auto-detect on open()
+        self._baud   = baud
+        self._ser: serial.Serial | None = None
+        self._lock   = threading.RLock()
+        self._opened = False
+
+        if auto_open:
+            self.open()
+
+    # ── Connection ────────────────────────────────────────────────────────────
+
+    def open(self, progress_callback=None):
+        """
+        Open the serial connection.  If no port was specified at construction,
+        scan all available COM ports for a device that replies PONG to P.
+
+        Parameters
+        ----------
+        progress_callback : callable(str) | None
+            Called with status messages during scanning so the UI can display them.
+        """
+        with self._lock:
+            if self._opened:
+                return
+
+            if self._port:
+                self._connect(self._port)
+            else:
+                self._auto_detect(progress_callback)
+
+            self._opened = True
+
+    def _connect(self, port):
+        try:
+            ser = serial.Serial(
+                port=port,
+                baudrate=self._baud,
+                timeout=PING_TIMEOUT,
+            )
+            time.sleep(1.5)   # ESP32 resets on DTR; give it time to boot
+            ser.reset_input_buffer()
+            if not self._ping_serial(ser):
+                ser.close()
+                raise BridgeError(f"Device on {port} did not respond to PING")
+            self._ser  = ser
+            self._port = port
+            logging.info(f"[ESP32Bridge] Connected on {port}")
+        except serial.SerialException as exc:
+            raise BridgeError(f"Cannot open {port}: {exc}") from exc
+
+    def _auto_detect(self, progress_callback=None):
+        ports = [p.device for p in serial.tools.list_ports.comports()]
+        if not ports:
+            raise BridgeError("No COM ports found. Is the ESP32-S3 connected?")
+
+        def _cb(msg):
+            logging.info(f"[ESP32Bridge] {msg}")
+            if progress_callback:
+                progress_callback(msg)
+
+        _cb(f"Scanning {len(ports)} port(s): {', '.join(ports)}")
+
+        for port in ports:
+            _cb(f"Trying {port}…")
+            try:
+                ser = serial.Serial(port=port, baudrate=self._baud, timeout=SCAN_TIMEOUT)
+                time.sleep(1.5)
+                ser.reset_input_buffer()
+                if self._ping_serial(ser):
+                    self._ser  = ser
+                    self._port = port
+                    _cb(f"Found ESP32-S3 on {port} ✓")
+                    return
+                ser.close()
+            except (serial.SerialException, OSError):
+                pass
+
+        raise BridgeError(
+            f"ESP32-S3 not found on any COM port ({', '.join(ports)}). "
+            "Check the USB cable and try again."
+        )
+
+    @staticmethod
+    def _ping_serial(ser: serial.Serial) -> bool:
+        try:
+            ser.write(b"P\n")
+            ser.flush()
+            deadline = time.monotonic() + PING_TIMEOUT
+            while time.monotonic() < deadline:
+                line = ser.readline().decode("ascii", errors="ignore").strip()
+                if line == "PONG":
+                    return True
+            return False
+        except Exception:
+            return False
+
+    def close(self):
+        with self._lock:
+            if self._ser and self._ser.is_open:
+                try:
+                    self._ser.close()
+                except Exception:
+                    pass
+            self._opened = False
+            self._ser    = None
+
+    def is_open(self) -> bool:
+        with self._lock:
+            return self._opened and self._ser is not None and self._ser.is_open
+
+    def get_port(self) -> str | None:
+        return self._port
+
+    # ── Internal send / receive ───────────────────────────────────────────────
+
+    def _send(self, cmd: str):
+        """Send a command line and wait for OK / ERR."""
+        with self._lock:
+            if not self.is_open():
+                raise BridgeError("ESP32Bridge is not connected")
+            try:
+                raw = (cmd.strip() + "\n").encode("ascii")
+                self._ser.write(raw)
+                self._ser.flush()
+
+                deadline = time.monotonic() + CMD_TIMEOUT
+                while time.monotonic() < deadline:
+                    line = self._ser.readline().decode("ascii", errors="ignore").strip()
+                    if line == "OK":
+                        return
+                    if line == "ERR":
+                        raise BridgeError(f"ESP32 returned ERR for command: {cmd!r}")
+                    if line:   # unexpected but non-empty — ignore and keep reading
+                        logging.debug(f"[ESP32Bridge] unexpected: {line!r}")
+            except BridgeError:
+                raise
+            except Exception as exc:
+                raise BridgeError(f"Serial error sending {cmd!r}: {exc}") from exc
+
+    # ── Key / button helpers ──────────────────────────────────────────────────
+
+    @staticmethod
+    def _key_code(key: str) -> int:
+        lowered = key.lower()
+        if lowered not in KEY_CODES:
+            raise BridgeError(f"Unsupported key: {key!r}")
+        return KEY_CODES[lowered]
+
+    @staticmethod
+    def _button_code(button: str) -> int:
+        lowered = button.lower()
+        if lowered == "left":   return 1
+        if lowered == "right":  return 2
+        if lowered == "middle": return 3
+        raise BridgeError(f"Unsupported mouse button: {button!r}")
+
+    # ── Public API (mirrors Bridge) ───────────────────────────────────────────
+
+    def ping(self) -> bool:
+        with self._lock:
+            if not self.is_open():
+                return False
+            return self._ping_serial(self._ser)
+
+    def mouse_move_relative(self, dx: int, dy: int):
+        self._send(f"M {int(dx)} {int(dy)}")
+
+    def mouse_press(self, button="left"):
+        self._send(f"D {self._button_code(button)}")
+
+    def mouse_release(self, button="left"):
+        self._send(f"U {self._button_code(button)}")
+
+    def mouse_click(self, button="left", delay_ms=30):
+        self._send(f"C {self._button_code(button)}")
+
+    def mouse_scroll(self, wheel: int):
+        self._send(f"S {int(wheel)}")
+
+    def key_press(self, key: str):
+        self._send(f"K {self._key_code(key)}")
+
+    def key_release(self, key: str):
+        self._send(f"R {self._key_code(key)}")
+
+    def key_release_all(self):
+        self._send("A")
+
+    def key_tap(self, key: str, delay_ms=35):
+        code = self._key_code(key)
+        self._send(f"K {code}")
+        time.sleep(delay_ms / 1000.0)
+        self._send(f"R {code}")
+
+    def key_multi_press(self, keys):
+        for key in keys:
+            self._send(f"K {self._key_code(key)}")
+        for key in reversed(keys):
+            self._send(f"R {self._key_code(key)}")
+
+    # ── No-ops (Ghub-only features) ───────────────────────────────────────────
+
+    def mouse_settings_apply(self):
+        """No-op: ESP32 HID uses raw relative moves — no Windows accel to disable."""
+        pass
+
+    def mouse_settings_restore(self):
+        """No-op: nothing to restore."""
+        pass
+
+    def shutdown(self, force=False):
+        self.close()
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass

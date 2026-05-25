@@ -25,15 +25,6 @@ class MyApp(QWidget):
         self.count_exp = 1
         self.count_thd = 3
 
-        # priority/avoid state is fully populated in set_priority(), but we
-        # initialize defaults here so any early access doesn't AttributeError.
-        self.priority = []
-        self.avoid = []
-        self.priority_floors = {}
-        self.avoid_floors = {}
-        self.all = []
-        self.available_items = []
-
         self.selected_affinity = {i: [i] for i in range(7)}
         self.team_lux = self._day()
         self.team_lux_buttons = [self.team_lux, 3 + self._day(sin=True)]
@@ -405,10 +396,10 @@ class MyApp(QWidget):
     def get_priority(self, team):
         affinity = self.selected_affinity[team][0]
         if self.hard:
-            team_data = Bot.HARD[list(Bot.HARD.keys())[affinity]]
-        else:
             team_data = Bot.TEAMS[list(Bot.TEAMS.keys())[affinity]]
-        return team_data.get("floors", [])
+        else:
+            team_data = Bot.HARD[list(Bot.HARD.keys())[affinity]]
+        return team_data.get(f"floors", [])
     
     def get_all(self):
         if self.hard:
@@ -572,7 +563,7 @@ class MyApp(QWidget):
         self.buttons = {
             'update': CustomButton(self, {
                 'geometry': (202, 24, 298, 53),
-                'click_handler': lambda: webbrowser.open('https://github.com/PhaiKub/Activision/releases/latest'),
+                'click_handler': lambda: webbrowser.open('https://github.com/Walpth/Charge-Grinder/releases/latest'),
                 'checkable': True,
                 'checked': True,
                 'icon': Bot.APP_PTH['update'],
@@ -681,7 +672,7 @@ class MyApp(QWidget):
                 'geometry': (615, 33, 35, 35),
                 'glow': Bot.APP_PTH['me'],
                 'glow_geometry': (610, 26, 47, 47),
-                'click_handler': lambda: webbrowser.open('https://github.com/PhaiKub/Activision')
+                'click_handler': lambda: webbrowser.open('https://github.com/Walpth/Charge-Grinder')
             })
         }
         all_buttons = self._get_keyword_icon() + self._get_button_affinity() + self._get_button_selected() + self._get_button_keyword()
@@ -843,9 +834,9 @@ class MyApp(QWidget):
                 button.setIcon(QIcon())
 
         if self.is_lux:
-            self.sinner_selections[self.team_lux + 7] = []
+            self.sinner_selections[self.team_lux + 7]
         else:
-            self.sinner_selections[self.team] = []
+            self.sinner_selections[self.team]
 
     def save_config(self):
         if len(self.selected_card_order) < 5:
@@ -1440,23 +1431,9 @@ class MyApp(QWidget):
 
         msg = QMessageBox(self)
         msg.setIcon(QMessageBox.Icon.Critical)
-
-        if "ESP32" in message or "reconnect" in message.lower():
-            msg.setWindowTitle("ESP32-S3 Disconnected")
-            msg.setText("ESP32-S3 USB connection lost.")
-            msg.setInformativeText(
-                f"{message}\n\n"
-                "Please check:\n"
-                "- USB cable is securely connected\n"
-                "- ESP32-S3 LED is not red\n"
-                "- Try unplugging and re-plugging the USB cable\n\n"
-                "Restart the bot after reconnecting."
-            )
-        else:
-            msg.setWindowTitle("Bot Error")
-            msg.setText("Traceback is saved in the log file. \nError message:")
-            msg.setInformativeText(message)
-
+        msg.setWindowTitle("Bot Error")
+        msg.setText("Traceback is saved in the log file. \nError message:")
+        msg.setInformativeText(message)
         msg.setStandardButtons(QMessageBox.StandardButton.Ok)
         msg.exec()
 

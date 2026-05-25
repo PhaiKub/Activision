@@ -6,7 +6,8 @@ speed        : px/s.
 curve_series : θ(s) the heading angle on uniform arc-length.
 
 Needs model.npz
-If you want to see trainer implementation, you can contact Walpth on Discord.
+If you want to see trainer implementation, you can check:
+https://github.com/Walpth/ideal-mouse-movements
 """
 
 import json

@@ -3,7 +3,6 @@ from ctypes import wintypes
 import time
 import math
 import random
-import os
 import threading
 
 import numpy as np
@@ -14,21 +13,30 @@ from source.utils.movement.builder import build_trajectory
 from source.utils.movement.inertia import get_inherited_velocity, update_inertia
 from source.utils.movement.pointer_gain import update_pointer_scale, execute_trajectory
 
+from source.utils.bridge.bridge import Bridge
+from source.utils.bridge.esp32_bridge import ESP32Bridge
 
-from source.utils.bridge.esp32s3_bridge import ESP32S3BridgeError
 
 _bridge = None
 _bridge_lock = threading.RLock()
 _bridge_init_error = None
+_mouse_settings_active = False
 
 
-def _get_bridge():
+def _get_bridge(progress_callback=None):
     global _bridge, _bridge_init_error
     with _bridge_lock:
         if _bridge is None:
             try:
-                from source.utils.bridge.esp32s3_bridge import ESP32S3Bridge
-                _bridge = ESP32S3Bridge(auto_open=True)
+                if p.INPUT_BACKEND == "esp32":
+                    _bridge = ESP32Bridge(
+                        port=p.ESP32_PORT,
+                        baud=p.ESP32_BAUD,
+                        auto_open=False,
+                    )
+                    _bridge.open(progress_callback=progress_callback)
+                else:
+                    _bridge = Bridge(auto_open=True)
                 _bridge_init_error = None
             except Exception as exc:
                 _bridge_init_error = RuntimeError(f"Bridge initialization failed: {exc}")
@@ -36,21 +44,23 @@ def _get_bridge():
         return _bridge
 
 
-_mouse_settings_active = False
-
-
 def _ensure_mouse_settings():
-    """No-op for ESP32 bridge — mouse acceleration settings are not applicable."""
     global _mouse_settings_active
     if _mouse_settings_active:
         return
+    # ESP32Bridge.mouse_settings_apply() is a no-op — safe to call either way
+    _get_bridge().mouse_settings_apply()
     _mouse_settings_active = True
 
 
 def restore_mouse_settings():
-    """No-op for ESP32 bridge — mouse acceleration settings are not applicable."""
     global _mouse_settings_active
-    _mouse_settings_active = False
+    if _bridge is None or not _mouse_settings_active:
+        return
+    try:
+        _bridge.mouse_settings_restore()
+    finally:
+        _mouse_settings_active = False
 
 
 class BITMAPINFOHEADER(ctypes.Structure):
@@ -130,7 +140,7 @@ def screenshot(imageFilename=None, region=None, allScreens=False):
 
 user32 = ctypes.windll.user32
 
-# Tweening functions (kept for backward compatibility)
+# Tweening functions
 def linear(t):
     return t
 
@@ -240,30 +250,18 @@ def _sample_hold_seconds(kind, profile=None):
     return sampled_ms / 1000.0
 
 
-def mouseDown(button='left', delay=0.03, jitter=0.04):
+def mouseDown(button='left', delay=0.16, jitter=0.04):
     _fail_safe_check()
-    try:
-        _get_bridge().mouse_press(button=button)
-    except ESP32S3BridgeError:
-        raise
-    except Exception as e:
-        print(f"[click] mouseDown failed: {e}")
+    _ensure_mouse_settings()
+    _get_bridge().mouse_press(button=button)
     if delay > 0:
         _human_delay(delay, delay + max(0.0, jitter))
     _fail_safe_check()
 
 
-def mouseUp(button='left', delay=0.03, jitter=0.05):
+def mouseUp(button='left', delay=0.16, jitter=0.05):
     _fail_safe_check()
-    for attempt in range(3):
-        try:
-            _get_bridge().mouse_release(button=button)
-            break
-        except ESP32S3BridgeError:
-            raise
-        except Exception as e:
-            print(f"[click] mouseUp failed (attempt {attempt + 1}): {e}")
-            time.sleep(0.05)
+    _get_bridge().mouse_release(button=button)
     if delay > 0:
         _human_delay(delay, delay + max(0.0, jitter))
     _fail_safe_check()
@@ -282,7 +280,17 @@ FAILSAFE_ENABLED = True
 
 
 def _apply_macro_rhythm(profile=None):
-    return  # Skip — HID relative move would shift cursor off target
+    profile = profile or get_macro_profile()
+    pause, (dx, dy) = maybe_rhythm_jitter(profile)
+
+    if dx != 0 or dy != 0:
+        _get_bridge().mouse_move_relative(dx, dy)
+        _human_delay(0.004, 0.012)
+
+    if pause > 0:
+        time.sleep(pause)
+
+    _fail_safe_check()
 
 def set_failsafe(state=True):
     """Enable or disable the fail-safe feature"""
@@ -311,8 +319,6 @@ def _within_target(a, b, size=(20.0, 20.0)):
 
 
 def _clamp_point_to_screen_bounds(x, y):
-    if p.SCREEN is None:
-        return int(round(float(x))), int(round(float(y)))
     min_x, min_y, max_x, max_y = p.SCREEN
     max_x = max(min_x, max_x - 1)
     max_y = max(min_y, max_y - 1)
@@ -323,8 +329,6 @@ def _clamp_point_to_screen_bounds(x, y):
 
 
 def _project_points_to_screen_bounds(points):
-    if p.SCREEN is None:
-        return np.asarray(points, dtype=float).copy()
     min_x, min_y, max_x, max_y = p.SCREEN
     max_x = max(min_x, max_x - 1)
     max_y = max(min_y, max_y - 1)
@@ -339,25 +343,9 @@ def _emit_rel_open_loop(dev, dx, dy):
     _get_bridge().mouse_move_relative(int(dx), int(dy))
 
 
-def _bridge_min_step_interval():
-    """Minimum elapsed time between HID emits, sized to USB CDC latency (~5ms RTT)."""
-    return 0.008
-
-
-def _sync_hid_position(target_x, target_y):
-    """Force a HID input event so the game registers the cursor position.
-
-    The game reads from raw HID input, so a no-op nudge ensures the most
-    recent relative deltas have been seen. We deliberately skip SetCursorPos
-    so we do not stomp on the human-like trajectory that just landed.
-    """
-    bridge = _get_bridge()
-    bridge.mouse_move_relative(1, 0)
-    bridge.mouse_move_relative(-1, 0)
-
-
 def moveTo(x, y, duration=0, delay=0.0, tsize=(5.0, 5.0), offset_x=0, offset_y=0, curve=0.8, n_sub=None, inertia=False):
     _fail_safe_check()
+    _ensure_mouse_settings()
 
     start_x, start_y = get_position()
     end_x = int(round(x + offset_x))
@@ -374,12 +362,9 @@ def moveTo(x, y, duration=0, delay=0.0, tsize=(5.0, 5.0), offset_x=0, offset_y=0
 
     duration_override = duration if duration and duration > 0 else None
 
-    last_pos = (start_x, start_y)
-    min_step_interval = _bridge_min_step_interval()
-
-    for _ in range(4):  # Limit retry iterations to prevent infinite loops
+    while True:
         traj = build_trajectory(
-            last_pos,
+            (start_x, start_y),
             (end_x, end_y),
             duration_override=duration_override,
             target_width=tsize[0],
@@ -392,22 +377,17 @@ def moveTo(x, y, duration=0, delay=0.0, tsize=(5.0, 5.0), offset_x=0, offset_y=0
         raw_path = _project_points_to_screen_bounds(traj["points"])
         times = traj["times"]
 
-        raw_delta = execute_trajectory(
-            None, raw_path, times,
-            emit_func=_emit_rel_open_loop,
-            min_step_interval=min_step_interval,
-        )
-        last_pos = get_position()
+        raw_delta = execute_trajectory(None, raw_path, times, emit_func=_emit_rel_open_loop)
+        start_x, start_y = get_position()
 
         if not np.any(np.abs(raw_delta) > 15.0) or \
-           _within_target(last_pos, (end_x, end_y), tsize):
+           _within_target((start_x, start_y), (end_x, end_y), tsize):
             break
 
-        update_pointer_scale(raw_delta, raw_path[0], last_pos)
+        update_pointer_scale(raw_delta, raw_path[0], (start_x, start_y))
         _fail_safe_check()
 
     update_inertia(raw_path, times)
-    _sync_hid_position(end_x, end_y)
 
 
 def click(x=None, y=None, button='left', clicks=1, interval=0.15, duration=0.0, tsize=(5.0, 5.0), delay=0.03):
@@ -415,7 +395,7 @@ def click(x=None, y=None, button='left', clicks=1, interval=0.15, duration=0.0, 
     profile = get_macro_profile()
     _apply_macro_rhythm(profile)
     delay = randomize_with_profile(delay, profile=profile, key="delay_jitter")
-
+    
     if x is not None and y is not None:
         moveTo(x, y, duration=duration, delay=delay+0.02, tsize=tsize)
 
@@ -424,7 +404,7 @@ def click(x=None, y=None, button='left', clicks=1, interval=0.15, duration=0.0, 
         click_hold = _sample_hold_seconds("click", profile=profile)
         mouseDown(button, delay=click_hold, jitter=0.0)
         mouseUp(button, delay=delay)
-
+        
         if interval > 0 and i < clicks - 1:
             time.sleep(randomize_with_profile(interval, profile=profile, key="click_interval_jitter"))
             _fail_safe_check()
@@ -433,7 +413,7 @@ def click(x=None, y=None, button='left', clicks=1, interval=0.15, duration=0.0, 
 def dragTo(x, y, duration=0.1, button='left', tsize=(5.0, 5.0), start_x=None, start_y=None, hook=False):
     _fail_safe_check()
     _apply_macro_rhythm()
-
+    
     if start_x is not None and start_y is not None:
         moveTo(start_x, start_y, tsize=tsize)
 
@@ -446,9 +426,9 @@ def dragTo(x, y, duration=0.1, button='left', tsize=(5.0, 5.0), start_x=None, st
         mouseUp(button, delay=0.03)
     _fail_safe_check()
 
-
 def scroll(clicks, x=None, y=None):
     _fail_safe_check()
+    _ensure_mouse_settings()
     _apply_macro_rhythm()
     if x is not None and y is not None:
         moveTo(x, y)
@@ -470,37 +450,28 @@ def press(keys, presses=1, interval=0.1, delay=0.09):
     if isinstance(keys, str):
         keys = [keys]
 
-    bridge = _get_bridge()
-    has_release = hasattr(bridge, "key_release")
-
     for _p in range(presses):
         if isinstance(keys, str):
             keys = [keys]
 
         for key in keys:
             _fail_safe_check()
-            bridge.key_press(key)
+            _get_bridge().key_press(key)
             key_hold = _sample_hold_seconds("key", profile=profile)
             time.sleep(key_hold)
 
-        if has_release:
-            for key in reversed(keys):
-                bridge.key_release(key)
-        else:
-            bridge.key_release_all()
+        for key in reversed(keys):
+            _get_bridge().key_release(key)
 
         if interval > 0 and _p < presses - 1:
             time.sleep(randomize_with_profile(interval, profile=profile, key="key_interval_jitter"))
             _fail_safe_check()
-
 
 def hotkey(*args, **kwargs):
     press(list(args), **kwargs)
 
 
 def check_window():
-    if p.SCREEN is None:
-        p.SCREEN = get_virtual_screen_bounds()
     min_x, min_y, max_x, max_y = p.SCREEN
     left, top, width, height = p.WINDOW
     in_bounds = (

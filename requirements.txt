@@ -1,4 +1,4 @@
-numpy==2.3.0 # compatibility
+numpy
 opencv-python-headless
 PySide6
-pyserial  # ESP32 Bluetooth bridge
+pyserial

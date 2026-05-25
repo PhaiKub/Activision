@@ -46,3 +46,8 @@ MOVE_ANIMATION = False
 MACRO_PROFILE = "SAFE"
 MACRO_RHYTHM = True
 KEY_ERRORS = 0
+
+# Input backend: "esp32" uses ESP32-S3 USB HID; "ghub" uses the Ghub Bridge DLL.
+INPUT_BACKEND = "esp32"
+ESP32_PORT    = None    # None = auto-detect; set to e.g. "COM5" to skip scanning
+ESP32_BAUD    = 115200

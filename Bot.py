@@ -1,6 +1,5 @@
 from source.utils.utils import *
 from itertools import cycle
-from copy import deepcopy
 
 from source.battle import fight, select_team
 from source.event import event
@@ -322,9 +321,7 @@ def set_team(team, teams, keywordless):
     p.TEAM = [list(team_list.keys())[aff] for aff in list(teams[team]["affinity"])]
     p.NAME_ORDER = teams[team]["affinity_idx"]
     p.DUPLICATES = teams[team]["duplicates"]
-    # deepcopy so per-iteration mutations (e.g. trimming uptie1) don't persist
-    # across runs and corrupt the global team data.
-    p.GIFTS = [deepcopy(team_list[keyword]) for keyword in p.TEAM]
+    p.GIFTS = [team_list[keyword] for keyword in p.TEAM]
 
     if not p.BUFF[3]: p.GIFTS[0]['uptie1'] = {k: p.GIFTS[0]['uptie1'][k] for k in list(p.GIFTS[0]['uptie1'])[:1]}
 

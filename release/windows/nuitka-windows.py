@@ -1,5 +1,4 @@
 import os
-import re
 import subprocess
 import sys
 
@@ -18,6 +17,7 @@ def _read_app_version(default: str = "0.0.0") -> str:
 
 
 def _as_windows_file_version(version: str) -> str:
+    import re
     parts = re.findall(r"\d+", version)
     normalized = [str(int(p)) for p in parts[:4]]
     while len(normalized) < 4:
@@ -31,8 +31,7 @@ def _cmd(output_name: str, console_mode: str):
     company_name = "app"
     product_name = "app"
     file_description = "desktop app"
-    local_appdata = os.getenv("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Local")
-    onefile_tempdir = os.path.join(local_appdata, "app", "onefile")
+    onefile_tempdir = "{CACHE_DIR}/{COMPANY}/{PRODUCT}/{VERSION}"
 
     return [
         sys.executable,
@@ -55,9 +54,10 @@ def _cmd(output_name: str, console_mode: str):
         f"--include-data-dir={os.path.join(ROOT_DIR, 'ImageAssets', 'UI')}=ImageAssets/UI",
         f"--include-data-dir={os.path.join(ROOT_DIR, 'ImageAssets', 'AppUI')}=ImageAssets/AppUI",
         f"--include-data-files={os.path.join(ROOT_DIR, 'ImageAssets', 'app_icon.ico')}=ImageAssets/app_icon.ico",
-        f"--include-data-files={os.path.join(ROOT_DIR, 'ImageAssets', 'app.png')}=ImageAssets/app.png",
-        f"--include-data-files={os.path.join(ROOT_DIR, 'version')}=version",
+        f"--include-data-files={VERSION_FILE}=version",
+        f"--include-data-files={os.path.join(ROOT_DIR, 'source', 'utils', 'bridge', 'bridge.dll')}=move_assets/bridge.dll",
         f"--include-data-files={os.path.join(ROOT_DIR, 'source', 'utils', 'movement', 'model.npz')}=move_assets/model.npz",
+        "--nofollow-import-to=source.utils.os_x11_backend",
         ENTRY,
     ]
 

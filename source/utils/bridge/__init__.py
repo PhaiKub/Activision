@@ -1,3 +1,4 @@
-from .esp32s3_bridge import ESP32S3Bridge, ESP32S3BridgeError
+from .bridge import Bridge, BridgeError
+from .esp32_bridge import ESP32Bridge
 
-__all__ = ["ESP32S3Bridge", "ESP32S3BridgeError"]
+__all__ = ["Bridge", "BridgeError", "ESP32Bridge"]

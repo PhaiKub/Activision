@@ -1,10 +1,24 @@
-import numpy as np, cv2, random, time, os, logging
+import numpy as np, cv2, random, time, os, platform, logging
 from source.utils.paths import *
 import source.utils.params as p
 
 from PySide6.QtCore import QMetaObject, Qt
 
-import source.utils.os_windows_backend as gui
+if platform.system() == "Windows":
+    import source.utils.os_windows_backend as gui
+elif platform.system() == "Linux":
+    if os.environ.get("XDG_SESSION_TYPE") == "x11":
+        try:
+            import source.utils.os_x11_backend as gui
+        except PermissionError as ex:
+            raise RuntimeError(
+                "Input device access denied on Linux. "
+                "Add your user to the 'input' group and re-login, or run with sufficient permissions."
+            ) from ex
+    else:
+        raise RuntimeError("Wayland is not supported. Use Plasma (X11).")
+else:
+    raise RuntimeError("Unsupported OS")
 
 
 class StopExecution(Exception): pass
@@ -43,7 +57,7 @@ def win_click(*args, **kwargs):
 
     if "tsize" in kwargs:
         kwargs["tsize"] = tuple(int(size * comp) for size in kwargs["tsize"])
-
+    
     gui.click(x, y, **kwargs)
 
 def win_moveTo(*args, **kwargs):
@@ -66,7 +80,6 @@ def win_dragTo(*args, **kwargs):
         kwargs["tsize"] = tuple(int(size * comp) for size in kwargs["tsize"])
 
     gui.dragTo(x, y, **kwargs)
-
 
 def countdown(seconds): # no more than 99 seconds!
     for i in range(seconds, 0, -1):
@@ -342,8 +355,8 @@ class Locate(): # if inputing np.ndarray, convert to BGR first!
                     else:
                         res = gui.center(res)
                         if Locate.tsize["name"] == template:
-                            tsize = Locate.tsize["size"]
-
+                            tsize = Locate.tsize["size"]            
+                    
                     win_moveTo(res, tsize=tsize)
                     gui.click()
                     # if isinstance(template, str):
@@ -723,13 +736,13 @@ def handle_fuckup():
 def input_with_fallback(key, mouse_action, ver_func):
     if not callable(ver_func) or not callable(mouse_action):
         raise ValueError("Pass a way to verify and execute the action!")
-
+    
     if p.KEY_ERRORS < 3:
         gui.press(key)
         if ver_func():
             return True
         p.KEY_ERRORS += 1
-
+    
     mouse_action()
     if ver_func():
         return True

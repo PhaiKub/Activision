@@ -44,12 +44,12 @@ def event():
                                 priority.append(box)
                 
                 if priority:
-                    priority = sorted(priority, key=lambda x: x[1])            
+                    sorted(priority, key=lambda x: x[1])            
                     win_click(gui.center(priority[0]), delay=0)
                     if is_choice_made(): continue
                 
                 if filtered:
-                    filtered = sorted(filtered, key=lambda x: x[1])            
+                    sorted(priority, key=lambda x: x[1])            
                     win_click(gui.center(filtered[0]), delay=0)
                     if is_choice_made(): continue
                 else:

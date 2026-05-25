@@ -5,15 +5,13 @@ import numpy as np
 
 
 _POINTER_STATE = {
-    "scale": 1.0,
-    "alpha": 0.9
+    "scale": 1.0
 }
 
 
 def update_pointer_scale(accumulated_raw, start_pos, current_pos):
     actual_delta = np.asarray(current_pos, dtype=float) - np.asarray(start_pos, dtype=float)
     raw_delta = np.asarray(accumulated_raw, dtype=float)
-    alpha = float(_POINTER_STATE["alpha"])
     raw_norm_sq = float(np.dot(raw_delta, raw_delta))
 
     if raw_norm_sq <= 225.0:
@@ -34,26 +32,11 @@ def update_pointer_scale(accumulated_raw, start_pos, current_pos):
     if abs(observed_scale - current_scale) <= 0.03:
         return
 
-    print(f"Pointer speed detected: {observed_scale}")
-    _POINTER_STATE["scale"] = (
-        (1.0 - alpha) * current_scale +
-        alpha * observed_scale
-    )
+    _POINTER_STATE["scale"] = observed_scale    
     print(f"Adjusting pointer scale to: {_POINTER_STATE['scale']}")
 
 
-def execute_trajectory(dev, raw_path, times, emit_func=None, min_step_interval=0.008):
-    """Execute trajectory with adaptive batching.
-
-    The default 1000Hz trajectory produces far more events than ESP32 HID
-    bridges can deliver in real-time. We coalesce sub-pixel and sub-interval
-    samples so the actual emit rate stays near what the hardware can sustain
-    without distorting the overall timing curve.
-
-    Args:
-        min_step_interval: minimum elapsed time between two HID emissions in
-            seconds. Bridges with higher latency can pass a larger value.
-    """
+def execute_trajectory(dev, raw_path, times, emit_func=None):
     if not callable(emit_func):
         raise ValueError("emit_func must be a callable function")
 
@@ -68,17 +51,11 @@ def execute_trajectory(dev, raw_path, times, emit_func=None, min_step_interval=0
 
     scale = float(_POINTER_STATE["scale"])
     path_start = path[0].copy()
-    last_emit_time = 0.0
 
     for i in range(1, n_points):
         target_time = float(times[i])
-        is_last = (i == n_points - 1)
-
-        # Coalesce: skip emit if too soon since the last one (unless final point).
-        if not is_last and (target_time - last_emit_time) < min_step_interval:
-            continue
-
         next_time = start_time + target_time
+
         now = time.perf_counter()
         while now < next_time:
             remaining = next_time - now
@@ -96,8 +73,5 @@ def execute_trajectory(dev, raw_path, times, emit_func=None, min_step_interval=0
         if raw_dx != 0 or raw_dy != 0:
             emit_func(dev, raw_dx, raw_dy)
             emitted_total += step_raw
-            last_emit_time = target_time
-        elif is_last:
-            last_emit_time = target_time
 
     return emitted_total

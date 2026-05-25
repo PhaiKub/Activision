@@ -217,9 +217,9 @@ def inventory_check(reg, h, uptie_det=True):
     return coords, coords_agg, have, uptie
 
 
-def browse(hook_x, step=135, adj=0, dur=0.3):
-    win_moveTo(hook_x, 480)
-    win_dragTo(hook_x, 480 - step + adj, duration=dur, hook=True)
+def browse(hook_x, step=140, adj=0, dur=0.3):
+    win_moveTo(hook_x, 480, tsize=(1, 1))
+    win_dragTo(hook_x, 480 - step + adj, duration=dur, hook=True, tsize=(1, 1))
 
 def browse_fast(hook_x, up=False):
     dy = -300 if not up else 300
@@ -272,7 +272,7 @@ def get_inventory():
                     break
             else:
                 print("scroll up for invetory scan")
-                browse(hook_x, step=-135, adj=adj)
+                browse(hook_x, step=-140, adj=adj)
 
                 if LocateGray.check(PTH["gifts_owned"], region=REG["fuse_shelf"], wait=False):
                     break
@@ -283,9 +283,9 @@ def get_inventory():
                 have.update(new_have)
                 uptie.update(new_uptie)
 
-            ck = LocateRGB.locate(PTH["height_ck"], region=(920, 585, 790, 165))
-            adj = 607 - ck[1] if ck else 0
-            print(adj)
+                ck = LocateRGB.locate(PTH["height_ck"], region=(920, 585, 790, 165), method=1)
+                adj = 625 - gui.center(ck)[1] if ck else 0
+                print(adj)
             h += 1
 
         # while not now_rgb.button("scroll") and now_rgb.button("scroll", "scroll_full"):
@@ -353,7 +353,7 @@ def perform_clicks(to_click):
             for _ in range(pos[2] - h):
                 browse(hook_x, step=-135, adj=adj)
                 ck = LocateRGB.locate(PTH["height_ck"], region=REG["fuse_shelf_low"])
-                adj = 607 - ck[1] if ck else 0
+                adj = 625 - gui.center(ck)[1] if ck else 0
             h = pos[2]
             time.sleep(0.2)
         ClickAction(pos[:2], ver="forecast!").execute(click_rgb)
@@ -481,7 +481,7 @@ def handle_available_fusion():
             if click_gifts(gift_list, REG["fuse_shelf_top"], chain=fuse_selected, is_fuse=True):
                 return now_rgb.button("scroll", "scroll_full")
             ck = LocateRGB.locate(PTH["height_ck"], region=REG["fuse_shelf_top"])
-            adj = 607 - ck[1] if ck else 0
+            adj = 625 - gui.center(ck)[1] if ck else 0
             h += 1
     return False
 
@@ -653,7 +653,7 @@ def get_uptie_inventory(gift_list):
             browse(hook_x, adj=adj)
             click_gifts(gift_list, REG["fuse_shelf_low"], chain=power_up)
             ck = LocateRGB.locate(PTH["height_ck"], region=REG["fuse_shelf_low"])
-            adj = 607 - ck[1] if ck else 0
+            adj = 625 - gui.center(ck)[1] if ck else 0
             h += 1
 
 def search_sell(reg):
@@ -691,7 +691,7 @@ def sell(gifts):
                     print("scroll up for sell click")
                     browse(hook_x, step=-165, adj=adj)
                     ck = LocateRGB.locate(PTH["height_ck"], region=(920, 585, 790, 165))
-                    adj = 600 - ck[1] if ck else 0
+                    adj = 618 - gui.center(ck)[1] if ck else 0
             
             if found_flag: continue
             
