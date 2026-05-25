@@ -35,17 +35,14 @@ The ESP32-S3 has **two separate USB ports** used for different purposes:
 
 ## ⚡ Firmware Setup
 
-### Option A — Flash via the App (Recommended for users)
+### Option A — Flash via the App (Recommended)
 
-1. Compile the firmware first (one-time):
-   ```powershell
-   # Requires Arduino IDE "Export Compiled Binary", then:
-   python esp32_firmware/build_firmware.py --merge-only
-   # Produces: esp32_firmware/esp32s3_usb_hid.bin
-   ```
-2. Plug in the **COM (CH340) port** of your ESP32-S3.
-3. Launch the app — when the scan dialog appears, enter the COM port and click **⚡ Flash Firmware**.
-4. After flashing, switch to the **USB (Native OTG) port** and click **Re-scan**.
+The firmware (`.bin`) is **already bundled inside `app.exe`** — no need to compile or download anything separately.
+
+1. Plug in the **COM (CH340) port** of your ESP32-S3.
+2. Launch `app.exe` — the scan dialog will appear automatically.
+3. Enter the COM port number and click **⚡ Flash Firmware**.
+4. Wait for flashing to complete (~30 s), then switch to the **USB (Native OTG) port** and click **Re-scan**.
 
 ### Option B — Flash via Arduino IDE
 
@@ -61,17 +58,18 @@ The ESP32-S3 has **two separate USB ports** used for different purposes:
 
 4. Click **Upload**.
 
-### Option C — Compile & Flash via arduino-cli
+### Option C — Compile & Flash via arduino-cli (for rebuilding firmware)
 
 ```powershell
 # Install arduino-cli and ESP32 core (once)
 winget install ArduinoSA.Arduino-CLI
 arduino-cli core install esp32:esp32
 
-# Compile + merge into a single flashable .bin
+# Compile + merge bootloader + partitions + app into one .bin
 python esp32_firmware/build_firmware.py
-# Produces: esp32_firmware/esp32s3_usb_hid.bin
-# Then flash via the app's ⚡ Flash button
+# Output: esp32_firmware/esp32s3_usb_hid.bin
+# Then rebuild the exe to bundle the new firmware:
+.\run-build-windows.ps1
 ```
 
 ### LED Status Indicators
@@ -110,10 +108,8 @@ python App.py
 
 To build standalone executables:
 ```powershell
-# Compile firmware first (if not already done)
-python esp32_firmware/build_firmware.py --merge-only
-
 # Build app.exe + app_debug.exe via Nuitka
+# (esp32s3_usb_hid.bin is already in esp32_firmware/ and gets bundled automatically)
 .\run-build-windows.ps1
 ```
 
