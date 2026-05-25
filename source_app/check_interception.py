@@ -95,15 +95,17 @@ class ESP32ScanDialog(QWidget):
     """
 
     # Signals emitted from the background thread to the main thread
-    _sig_log    = pyqtSignal(str)
-    _sig_found  = pyqtSignal(str)   # port name
-    _sig_failed = pyqtSignal(str)   # error message
+    _sig_log       = pyqtSignal(str)
+    _sig_found     = pyqtSignal(str)   # port name
+    _sig_failed    = pyqtSignal(str)   # error message
+    _sig_flash_log = pyqtSignal(str)   # flash progress line
+    _sig_flash_done = pyqtSignal(bool, str)  # (success, message)
 
     def __init__(self, parent=None):
         super().__init__(parent, Qt.WindowType.Dialog)
         self.setWindowModality(Qt.WindowModality.ApplicationModal)
         self.setWindowTitle("ESP32-S3 — Connecting")
-        self.setFixedSize(440, 290)
+        self.setFixedSize(460, 420)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
 
         self._success = False
@@ -112,6 +114,8 @@ class ESP32ScanDialog(QWidget):
         self._sig_log.connect(self._on_log)
         self._sig_found.connect(self._on_found)
         self._sig_failed.connect(self._on_failed)
+        self._sig_flash_log.connect(self._on_flash_log)
+        self._sig_flash_done.connect(self._on_flash_done)
 
     # ── UI ────────────────────────────────────────────────────
 
@@ -132,16 +136,30 @@ class ESP32ScanDialog(QWidget):
         self._log.setWordWrap(True)
         self._log.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         self._log.setStyleSheet("color: #aaaaaa; padding: 6px; background: #1a1a1a; border-radius: 4px;")
-        self._log.setFixedHeight(90)
+        self._log.setFixedHeight(72)
         layout.addWidget(self._log)
 
-        # Manual port row (hidden while scanning)
+        # Persistent port-guide hint
+        hint = QLabel(
+            "<b>ESP32-S3 has 2 USB ports:</b><br>"
+            "&nbsp;&nbsp;🔵 <b>USB</b> (Native OTG) &nbsp;&rarr; Connect for running the bot<br>"
+            "&nbsp;&nbsp;🟡 <b>COM</b> (UART/CH340) &rarr; Connect for flashing firmware"
+        )
+        hint.setWordWrap(True)
+        hint.setTextFormat(Qt.TextFormat.RichText)
+        hint.setStyleSheet(
+            "color: #cccccc; font-size: 10px; padding: 6px 8px;"
+            "background: #1e1e2e; border: 1px solid #444; border-radius: 4px;"
+        )
+        layout.addWidget(hint)
+
+        # Manual connect row — USB (Native OTG) port for running the bot
         self._manual_row = QWidget()
         row_layout = QHBoxLayout(self._manual_row)
         row_layout.setContentsMargins(0, 0, 0, 0)
         row_layout.setSpacing(8)
 
-        row_layout.addWidget(QLabel("COM port:"))
+        row_layout.addWidget(QLabel("🔵 USB port:"))
 
         self._port_input = QLineEdit()
         self._port_input.setPlaceholderText("e.g. COM5")
@@ -162,6 +180,28 @@ class ESP32ScanDialog(QWidget):
         layout.addWidget(self._manual_row)
         self._manual_row.hide()
 
+        # Flash firmware row (shown when scan fails and .bin exists)
+        self._flash_row = QWidget()
+        flash_layout = QHBoxLayout(self._flash_row)
+        flash_layout.setContentsMargins(0, 0, 0, 0)
+        flash_layout.setSpacing(8)
+
+        flash_layout.addWidget(QLabel("🟡 COM port:"))
+        self._flash_port_input = QLineEdit()
+        self._flash_port_input.setPlaceholderText("e.g. COM5")
+        self._flash_port_input.setFixedWidth(90)
+        flash_layout.addWidget(self._flash_port_input)
+
+        self._flash_btn = QPushButton("⚡ Flash Firmware")
+        self._flash_btn.setFixedWidth(130)
+        self._flash_btn.setStyleSheet("color: #ffe066; font-weight: bold;")
+        self._flash_btn.clicked.connect(self._on_flash_btn)
+        flash_layout.addWidget(self._flash_btn)
+        flash_layout.addStretch()
+
+        layout.addWidget(self._flash_row)
+        self._flash_row.hide()
+
         self._status = QLabel("")
         self._status.setWordWrap(True)
         self._status.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -180,6 +220,7 @@ class ESP32ScanDialog(QWidget):
         self._log.setStyleSheet("color: #aaaaaa; padding: 6px; background: #1a1a1a; border-radius: 4px;")
         self._status.setText("")
         self._manual_row.hide()
+        self._flash_row.hide()
         self._success = False
 
         t = threading.Thread(target=self._scan_worker, daemon=True)
@@ -254,7 +295,99 @@ class ESP32ScanDialog(QWidget):
         self._log.setText(error)
         self._log.setStyleSheet("color: #ff7070; padding: 6px; background: #1f0d0d; border-radius: 4px;")
         self._manual_row.show()
-        self._status.setText("Plug in the ESP32-S3 and click Re-scan,\nor enter the COM port manually.")
+        self._flash_row.show()
+        self._status.setText(
+            "Plug in USB (Native OTG) and click Re-scan to connect the bot.\n"
+            "No firmware yet? Plug in COM (CH340) and click ⚡ Flash Firmware."
+        )
+
+    # ── Flash firmware ────────────────────────────────────────
+
+    def _on_flash_btn(self):
+        port = self._flash_port_input.text().strip()
+        if not port:
+            self._status.setText("⚠  Enter the COM port for flashing first.")
+            return
+
+        import os, sys
+        if getattr(sys, "__compiled__", False):
+            base = os.path.dirname(sys.executable)
+        else:
+            base = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        bin_path = os.path.join(base, "esp32_firmware", "esp32s3_usb_hid.bin")
+
+        if not os.path.isfile(bin_path):
+            self._status.setText(
+                "❌  Firmware file (.bin) not found.\n"
+                "Run: python esp32_firmware/build_firmware.py --merge-only"
+            )
+            return
+
+        self._flash_btn.setEnabled(False)
+        self._title.setText(f"⚡  Flashing firmware to {port}…")
+        self._log.setText("Starting esptool…")
+        self._log.setStyleSheet("color: #ffe066; padding: 6px; background: #1a1800; border-radius: 4px;")
+        self._flash_row.hide()
+        self._manual_row.hide()
+
+        t = threading.Thread(target=self._flash_worker, args=(port, bin_path), daemon=True)
+        t.start()
+
+    def _flash_worker(self, port: str, bin_path: str):
+        import subprocess, sys, os
+        try:
+            # bin_path is a merged binary (bootloader+partitions+app combined)
+            # produced by build_firmware.py using esptool merge_bin → flash at 0x0
+            cmd = [
+                sys.executable, "-m", "esptool",
+                "--chip", "esp32s3",
+                "--port", port,
+                "--baud", "921600",
+                "write_flash",
+                "--flash_mode", "dio",
+                "--flash_freq", "80m",
+                "--flash_size", "detect",
+                "0x0", bin_path,
+            ]
+            self._sig_flash_log.emit(f"Flashing {os.path.basename(bin_path)} → {port}")
+            proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, bufsize=1
+            )
+            for line in proc.stdout:
+                line = line.rstrip()
+                if line:
+                    self._sig_flash_log.emit(line)
+            proc.wait()
+            if proc.returncode == 0:
+                self._sig_flash_done.emit(True, port)
+            else:
+                self._sig_flash_done.emit(False, f"esptool exited with code {proc.returncode}")
+        except FileNotFoundError:
+            self._sig_flash_done.emit(False,
+                "esptool not found. Install with:  pip install esptool")
+        except Exception as exc:
+            self._sig_flash_done.emit(False, str(exc))
+
+    @pyqtSlot(str)
+    def _on_flash_log(self, line: str):
+        self._log.setText(line)
+
+    @pyqtSlot(bool, str)
+    def _on_flash_done(self, ok: bool, info: str):
+        self._flash_btn.setEnabled(True)
+        if ok:
+            self._title.setText("✅  Flash complete — rescanning…")
+            self._log.setText("Firmware flashed successfully. Waiting for ESP32 to reboot…")
+            self._log.setStyleSheet("color: #7fffb0; padding: 6px; background: #0d1f14; border-radius: 4px;")
+            # Give ESP32 time to reboot, then rescan
+            QTimer.singleShot(3000, self._start_scan)
+        else:
+            self._title.setText("❌  Flash Failed")
+            self._log.setText(info)
+            self._log.setStyleSheet("color: #ff7070; padding: 6px; background: #1f0d0d; border-radius: 4px;")
+            self._flash_row.show()
+            self._status.setText("Check the COM port and try again.")
 
     def was_successful(self) -> bool:
         return self._success
