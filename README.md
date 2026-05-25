@@ -6,7 +6,7 @@
 
 ---
 
-## pls Donate me
+## Pls Donate me
 [https://ko-fi.com/phaikub](https://ko-fi.com/phaikub). OR [https://easydonate.app/phaikub_990l](https://easydonate.app/phaikub_990l)
 
 ---
