@@ -141,6 +141,8 @@ class ESP32S3Bridge:
                       or _load_config_port())
         self._lock = threading.Lock()
         self._opened = False
+        self._cmd_count = 0  # Track commands for periodic health checks
+        self._last_health_check = time.time()
 
         if auto_open:
             self.open()
@@ -203,7 +205,9 @@ class ESP32S3Bridge:
         result = {"serial": None, "error": None}
         def _open():
             try:
-                result["serial"] = serial.Serial(port, baud, timeout=2)
+                result["serial"] = serial.Serial(
+                    port, baud, timeout=2, write_timeout=2
+                )
             except Exception as e:
                 result["error"] = e
         t = threading.Thread(target=_open, daemon=True)
@@ -242,7 +246,6 @@ class ESP32S3Bridge:
                 time.sleep(1)
                 s.reset_input_buffer()
                 s.write(b"P\n")
-                s.flush()
                 time.sleep(0.5)
                 resp = (s.readline()
                         .decode("utf-8", errors="replace").strip())
@@ -275,7 +278,7 @@ class ESP32S3Bridge:
 
     # ─── Internal I/O ─────────────────────────────────
 
-    MAX_RECONNECT = 3
+    MAX_RECONNECT = 5
 
     def _reconnect(self):
         print(f"[ESP32S3Bridge] Reconnecting to {self._port}...")
@@ -287,24 +290,56 @@ class ESP32S3Bridge:
         self._serial = None
         self._opened = False
 
-        for attempt in range(self.MAX_RECONNECT):
-            time.sleep(0.5 * (attempt + 1))
-            try:
-                s = serial.Serial(self._port, self.BAUD_RATE, timeout=2)
-                time.sleep(0.3)
-                s.reset_input_buffer()
-                s.write(b"P\n")
-                s.flush()
-                time.sleep(0.3)
-                resp = s.readline().decode("utf-8", errors="replace").strip()
-                if "PONG" in resp:
-                    self._serial = s
-                    self._opened = True
-                    print(f"[ESP32S3Bridge] Reconnected (attempt {attempt + 1})")
-                    return True
-                s.close()
-            except Exception as e:
-                print(f"[ESP32S3Bridge] Reconnect attempt {attempt + 1} failed: {e}")
+        # Phase 1: Try reconnecting to the existing port
+        if self._port:
+            for attempt in range(3):
+                wait = 0.5 * (attempt + 1)
+                time.sleep(wait)
+                try:
+                    s = self._try_open_serial(self._port, self.BAUD_RATE, timeout_sec=5)
+                    if s is None:
+                        continue
+                    time.sleep(0.5)
+                    s.reset_input_buffer()
+                    s.write(b"P\n")
+                    time.sleep(0.5)
+                    resp = s.readline().decode("utf-8", errors="replace").strip()
+                    if "PONG" in resp:
+                        self._serial = s
+                        self._opened = True
+                        print(f"[ESP32S3Bridge] Reconnected to existing port {self._port}")
+                        return True
+                    s.close()
+                except Exception as e:
+                    print(f"[ESP32S3Bridge] Reconnect attempt {attempt + 1} on {self._port} failed: {e}")
+
+        # Phase 2: Scan for ESP32-S3 port if existing port failed or not set
+        print("[ESP32S3Bridge] Re-scanning for ESP32-S3 port...")
+        for scan_attempt in range(3):
+            wait = 1.0 * (scan_attempt + 1)
+            time.sleep(wait)
+            new_port = self._find_esp32s3_port()
+            if new_port:
+                print(f"[ESP32S3Bridge] Found ESP32-S3 on port: {new_port}")
+                self._port = new_port
+                try:
+                    s = self._try_open_serial(self._port, self.BAUD_RATE, timeout_sec=5)
+                    if s is not None:
+                        time.sleep(0.5)
+                        s.reset_input_buffer()
+                        s.write(b"P\n")
+                        time.sleep(0.5)
+                        resp = s.readline().decode("utf-8", errors="replace").strip()
+                        if "PONG" in resp:
+                            self._serial = s
+                            self._opened = True
+                            save_config_port(self._port)
+                            print(f"[ESP32S3Bridge] Reconnected to new port {self._port}")
+                            return True
+                        s.close()
+                except Exception as e:
+                    print(f"[ESP32S3Bridge] Failed to connect to scanned port {self._port}: {e}")
+
         print("[ESP32S3Bridge] All reconnect attempts failed")
         return False
 
@@ -317,12 +352,21 @@ class ESP32S3Bridge:
                 )
         try:
             self._serial.write(data)
-            self._serial.flush()
+            # No flush() — USB CDC doesn't need it, and flush() can block
+            # indefinitely on Windows if the device stalls mid-transfer.
+        except serial.SerialTimeoutException:
+            # write_timeout hit — device is stalled, needs reconnect
+            print("[ESP32S3Bridge] Write timeout — device stalled")
+            if self._reconnect():
+                self._serial.write(data)
+            else:
+                raise ESP32S3BridgeError(
+                    "ESP32-S3 write timed out and reconnect failed"
+                )
         except (serial.SerialException, PermissionError, OSError):
             if self._reconnect():
                 try:
                     self._serial.write(data)
-                    self._serial.flush()
                 except Exception:
                     raise ESP32S3BridgeError(
                         "ESP32-S3 write failed after reconnect"
@@ -357,17 +401,53 @@ class ESP32S3Bridge:
     def _drain_buffer(self):
         """Drain any pending responses from ESP32-S3 to prevent output buffer overflow.
 
-        The firmware sends 'OK\\n' for every command, but we use wait_ack=False
-        for speed. Without draining, the ESP32's serial output buffer fills up,
-        println() blocks, and the device stops processing new commands entirely.
+        The updated firmware no longer sends 'OK' for high-frequency commands
+        (mouse move, click, press/release, scroll), but keyboard commands still
+        produce responses. This drain prevents even those from accumulating.
         """
         if not self._serial or not self._serial.is_open:
             return
         try:
-            while self._serial.in_waiting > 0:
-                self._serial.read(self._serial.in_waiting)
+            pending = self._serial.in_waiting
+            if pending > 0:
+                self._serial.read(pending)
         except Exception:
             pass
+
+    def _periodic_health_check(self, cmd):
+        """Periodically do a quick ping to make sure ESP32 is alive.
+
+        This catches edge cases where ESP32 silently freezes (e.g. buffer
+        overflow, USB glitch) before the bot gets stuck for minutes.
+        """
+        # Skip health check during mouse movement (M) or scroll (S) to prevent stutters
+        if cmd.startswith("M") or cmd.startswith("S"):
+            return
+
+        now = time.time()
+        if now - self._last_health_check < 60.0:
+            return
+        self._last_health_check = now
+
+        try:
+            self._drain_buffer()
+            # Send raw 'P' command directly
+            data = b"P\n"
+            if self._serial and self._serial.is_open:
+                self._serial.write(data)
+                old_timeout = self._serial.timeout
+                self._serial.timeout = 0.5
+                try:
+                    resp = self._serial.readline().decode("utf-8", errors="replace").strip()
+                finally:
+                    self._serial.timeout = old_timeout
+                if "PONG" in resp:
+                    return
+                print(f"[ESP32S3Bridge] Health check failed (got: '{resp}'), reconnecting...")
+                self._reconnect()
+        except Exception as e:
+            print(f"[ESP32S3Bridge] Health check error: {e}, reconnecting...")
+            self._reconnect()
 
     def _send(self, cmd, wait_ack=False):
         with self._lock:
@@ -375,6 +455,7 @@ class ESP32S3Bridge:
             self._send_raw(cmd)
             if wait_ack:
                 self._read_response(timeout=0.5)
+            self._periodic_health_check(cmd)
 
     @staticmethod
     def _key_code(key):

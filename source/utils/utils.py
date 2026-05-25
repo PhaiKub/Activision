@@ -711,13 +711,21 @@ def chain_actions(preset: LocatePreset, actions: list):
         curr.execute(preset, ver=ver)
 
 def handle_fuckup():
-    if p.LIMBUS_NAME in gui.getActiveWindowTitle():
-        gui.set_window()
-        win_click(1888, 901)
-        gui.press("esc")
-        gui.press("esc")
-        if loc.button("forfeit", wait=1):
+    try:
+        if p.LIMBUS_NAME in gui.getActiveWindowTitle():
+            gui.set_window()
+            win_click(1888, 901)
             gui.press("esc")
+            gui.press("esc")
+            if loc.button("forfeit", wait=1):
+                gui.press("esc")
+    except (gui.ESP32S3BridgeError, OSError) as e:
+        # Bridge is temporarily broken — don't crash the bot over it.
+        # The reconnect logic in the bridge will handle recovery on the
+        # next command.  Just log and let the main loop retry.
+        logging.warning(f"handle_fuckup: bridge unavailable ({e})")
+    except Exception:
+        pass
 
 
 def input_with_fallback(key, mouse_action, ver_func):

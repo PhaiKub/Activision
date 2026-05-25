@@ -42,7 +42,10 @@
 USBHIDMouse Mouse;
 USBHIDKeyboard Keyboard;
 
-String inputBuffer = "";
+// Fixed-size input buffer — avoids Arduino String heap fragmentation
+#define INPUT_BUF_SIZE 64
+char inputBuffer[INPUT_BUF_SIZE];
+uint8_t bufPos = 0;
 bool usbReady = false;
 
 // ──── LED state machine ────
@@ -113,28 +116,38 @@ uint8_t getBtn(int b) {
     return MOUSE_LEFT;
 }
 
+// ──── Helpers for fixed-size buffer parsing ────
+static int parseIntAt(const char *buf, int start) {
+    return atoi(buf + start);
+}
+
 // ──── Command processor ────
-void processCommand(String cmd) {
-    cmd.trim();
-    if (cmd.length() == 0) return;
-    char type = cmd.charAt(0);
+void processCommand(const char *cmd, uint8_t len) {
+    if (len == 0) return;
+    char type = cmd[0];
 
     triggerActive();
 
     switch (type) {
     case 'M': {
-        int sp1 = cmd.indexOf(' ', 0);
-        int sp2 = cmd.indexOf(' ', sp1 + 1);
+        // Parse "M dx dy" — find two spaces
+        int sp1 = -1, sp2 = -1;
+        for (int i = 1; i < len; i++) {
+            if (cmd[i] == ' ') {
+                if (sp1 < 0) sp1 = i;
+                else { sp2 = i; break; }
+            }
+        }
         if (sp1 < 0 || sp2 < 0) break;
-        Mouse.move(cmd.substring(sp1+1, sp2).toInt(), cmd.substring(sp2+1).toInt(), 0);
-        break;
+        Mouse.move(atoi(cmd + sp1 + 1), atoi(cmd + sp2 + 1), 0);
+        return;  // No "OK" — mouse moves are too frequent, would overflow output buffer
     }
-    case 'C': Mouse.click(getBtn(cmd.substring(2).toInt())); break;
-    case 'D': Mouse.press(getBtn(cmd.substring(2).toInt())); break;
-    case 'U': Mouse.release(getBtn(cmd.substring(2).toInt())); break;
-    case 'S': Mouse.move(0, 0, cmd.substring(2).toInt()); break;
-    case 'K': Keyboard.press((uint8_t)cmd.substring(2).toInt()); break;
-    case 'R': Keyboard.release((uint8_t)cmd.substring(2).toInt()); break;
+    case 'C': Mouse.click(getBtn(parseIntAt(cmd, 2))); return;   // No "OK" — high frequency
+    case 'D': Mouse.press(getBtn(parseIntAt(cmd, 2))); return;   // No "OK" — high frequency
+    case 'U': Mouse.release(getBtn(parseIntAt(cmd, 2))); return; // No "OK" — high frequency
+    case 'S': Mouse.move(0, 0, parseIntAt(cmd, 2)); return;      // No "OK" — high frequency
+    case 'K': Keyboard.press((uint8_t)parseIntAt(cmd, 2)); break;
+    case 'R': Keyboard.release((uint8_t)parseIntAt(cmd, 2)); break;
     case 'A': Keyboard.releaseAll(); break;
     case 'P': Serial.println("PONG"); return;
     case 'Q': Serial.println(usbReady ? "USB:1" : "USB:0"); return;
@@ -143,6 +156,7 @@ void processCommand(String cmd) {
         Serial.println("ERR");
         return;
     }
+    // Only keyboard commands (K, R, A) send OK — they are infrequent enough
     Serial.println("OK");
 }
 
@@ -183,13 +197,15 @@ void loop() {
     while (Serial.available()) {
         char c = Serial.read();
         if (c == '\n' || c == '\r') {
-            if (inputBuffer.length() > 0) {
-                processCommand(inputBuffer);
-                inputBuffer = "";
+            if (bufPos > 0) {
+                inputBuffer[bufPos] = '\0';  // null-terminate
+                processCommand(inputBuffer, bufPos);
+                bufPos = 0;
             }
-        } else {
-            inputBuffer += c;
+        } else if (bufPos < INPUT_BUF_SIZE - 1) {
+            inputBuffer[bufPos++] = c;
         }
+        // If bufPos hits max, silently drop characters until newline
     }
 
     // Detect Python disconnect

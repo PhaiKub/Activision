@@ -1,6 +1,7 @@
 from source.utils.utils import *
 from itertools import cycle
 from copy import deepcopy
+from source.utils.bridge.esp32s3_bridge import ESP32S3BridgeError
 
 from source.battle import fight, select_team
 from source.event import event
@@ -273,6 +274,12 @@ def main_loop():
                 ck += get_adversity()
             ck += grab_card()
             ck += shop()
+        except ESP32S3BridgeError as e:
+            # USB bridge temporarily lost — wait and let reconnect logic
+            # handle it on the next command.  Don't crash the whole bot.
+            logging.warning(f'Bridge error (will retry): {e}')
+            time.sleep(3)
+            error += 1
         except RuntimeError:
             handle_fuckup()
             error += 1
