@@ -6,9 +6,14 @@
 
 ---
 
-## Pls Donate me
-[https://ko-fi.com/phaikub](https://ko-fi.com/phaikub). OR [https://easydonate.app/phaikub_990l](https://easydonate.app/phaikub_990l)
+## 💖 Support the Project
 
+Honestly, I wish I could add support for other boards right now. However, due to limited budget and the high price of hardware in my country, I can't do it alone. I have set up donation links, and every contribution will go directly toward purchasing new development boards to further improve this project. 
+
+Thank you so much for your support! 🙏
+
+* [Donate via Ko-fi](https://ko-fi.com/phaikub)
+* [Donate via EasyDonate](https://easydonate.app/phaikub_990l)
 ---
 
 ## 🔌 ESP32-S3 — USB Port Guide
