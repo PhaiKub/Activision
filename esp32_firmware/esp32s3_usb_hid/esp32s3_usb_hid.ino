@@ -12,6 +12,7 @@
  *   🔵 Blue solid    — Active (receiving commands)
  *   🟢 Green blink   — Idle (was connected, now quiet)
  *   🔴 Red flash     — Error
+ *   🔴 Red fast blink — LOCKED (bot version mismatch — flash firmware!)
  *
  * Board settings in Arduino IDE:
  *   Board:           ESP32-S3 Dev Module
@@ -19,6 +20,7 @@
  *   USB CDC On Boot: Enabled
  *
  * Protocol:
+ *   H ver     — handshake (bot sends expected firmware version)
  *   M dx dy   — relative mouse move
  *   C btn     — click (1=left, 2=right, 3=middle)
  *   D btn     — mouse button down
@@ -29,6 +31,7 @@
  *   A         — release all keys
  *   P         — ping (returns PONG)
  *   Q         — query USB HID status
+ *   V         — query firmware version (returns VER:<version>)
  */
 
 #include "USB.h"
@@ -38,6 +41,7 @@
 // ──── Config ────
 #define RGB_PIN        48
 #define RGB_BRIGHTNESS 10
+#define FIRMWARE_VERSION "1.0.0"  // Update alongside esp32_firmware/firmware_version
 
 USBHIDMouse Mouse;
 USBHIDKeyboard Keyboard;
@@ -46,13 +50,14 @@ String inputBuffer = "";
 bool usbReady = false;
 
 // ──── LED state machine ────
-enum LedState { LED_BOOTING, LED_READY, LED_ACTIVE, LED_IDLE, LED_ERROR };
+enum LedState { LED_BOOTING, LED_READY, LED_ACTIVE, LED_IDLE, LED_ERROR, LED_LOCKED };
 LedState currentLedState = LED_BOOTING;
 unsigned long lastLedUpdate = 0;
 unsigned long lastCommandTime = 0;
 unsigned long errorFlashStart = 0;
 bool blinkOn = false;
 bool everConnected = false;
+bool authenticated = false;  // set true only after successful H handshake
 
 void setRGB(uint8_t r, uint8_t g, uint8_t b) {
     neopixelWrite(RGB_PIN, r, g, b);
@@ -93,6 +98,14 @@ void updateLED() {
         else currentLedState = (now - lastCommandTime < 5000) ? LED_ACTIVE
                              : everConnected ? LED_IDLE : LED_READY;
         break;
+    case LED_LOCKED:
+        // Fast persistent red blink — firmware/bot version mismatch
+        if (now - lastLedUpdate >= 150) {
+            lastLedUpdate = now;
+            blinkOn = !blinkOn;
+            setRGB(blinkOn ? RGB_BRIGHTNESS : 0, 0, 0);
+        }
+        break;
     }
 }
 
@@ -119,6 +132,35 @@ void processCommand(String cmd) {
     if (cmd.length() == 0) return;
     char type = cmd.charAt(0);
 
+    // ── Commands always available (no auth required) ──────────────────────────
+    switch (type) {
+    case 'P': Serial.println("PONG"); return;
+    case 'Q': Serial.println(usbReady ? "USB:1" : "USB:0"); return;
+    case 'V': Serial.println("VER:" FIRMWARE_VERSION); return;
+    case 'H': {
+        // Handshake: bot sends its expected firmware version
+        String clientVer = cmd.substring(2);
+        clientVer.trim();
+        if (clientVer == FIRMWARE_VERSION) {
+            authenticated = true;
+            if (currentLedState == LED_LOCKED) currentLedState = LED_READY;
+            Serial.println("AUTH:OK");
+        } else {
+            authenticated = false;
+            currentLedState = LED_LOCKED;   // persistent red blink
+            Serial.println("AUTH:FAIL");
+        }
+        return;
+    }
+    }
+
+    // ── All other commands require a successful handshake ─────────────────────
+    if (!authenticated) {
+        currentLedState = LED_LOCKED;
+        Serial.println("LOCKED");
+        return;
+    }
+
     triggerActive();
 
     switch (type) {
@@ -136,8 +178,6 @@ void processCommand(String cmd) {
     case 'K': Keyboard.press((uint8_t)cmd.substring(2).toInt()); break;
     case 'R': Keyboard.release((uint8_t)cmd.substring(2).toInt()); break;
     case 'A': Keyboard.releaseAll(); break;
-    case 'P': Serial.println("PONG"); return;
-    case 'Q': Serial.println(usbReady ? "USB:1" : "USB:0"); return;
     default:
         triggerError();
         Serial.println("ERR");
@@ -192,10 +232,11 @@ void loop() {
         }
     }
 
-    // Detect Python disconnect
+    // Detect Python disconnect → reset auth so next connection must handshake again
     if (everConnected && !Serial) {
         currentLedState = LED_READY;
         everConnected = false;
+        authenticated = false;
     }
 
     delay(1);

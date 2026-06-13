@@ -113,7 +113,7 @@ def _find_build_files(build_dir: str) -> tuple[str, str, str]:
 
 def merge_bin(bootloader: str, partitions: str, app: str, out: str):
     """Use esptool merge_bin to combine the 3 files into one flashable binary."""
-    print(f"\n[build_firmware] Merging → {out}")
+    print(f"\n[build_firmware] Merging -> {out}")
     _run([
         sys.executable, "-m", "esptool",
         "--chip", "esp32s3",
@@ -159,7 +159,7 @@ def build(merge_only=False):
     print(f"  app        : {app}")
 
     merge_bin(bootloader, partitions, app, MERGED_BIN)
-    print(f"\n[build_firmware] ✅  Ready to flash: {MERGED_BIN}")
+    print(f"\n[build_firmware] Done: {MERGED_BIN}")
     return MERGED_BIN
 
 
@@ -177,8 +177,8 @@ if __name__ == "__main__":
     try:
         main()
     except subprocess.CalledProcessError as e:
-        print(f"\n[build_firmware] ❌  Failed (exit {e.returncode})")
+        print(f"\n[build_firmware] FAILED (exit {e.returncode})")
         sys.exit(e.returncode)
     except Exception as e:
-        print(f"\n[build_firmware] ❌  {e}")
+        print(f"\n[build_firmware] ERROR: {e}")
         sys.exit(1)

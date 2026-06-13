@@ -31,6 +31,8 @@ class MyApp(QWidget):
         self.keywordless = {}
         self.thread = None
         self.worker = None
+        self.update_required = False
+        self._latest_version = ""
 
         self.load_settings()
         self._init_ui()
@@ -1240,11 +1242,32 @@ class MyApp(QWidget):
         self.version_thread.updateAvailable.connect(self.on_version_checked)
         self.version_thread.check()
 
-    def on_version_checked(self, up_to_date):
+    def on_version_checked(self, up_to_date, latest_version):
+        self._latest_version = latest_version
         if not up_to_date:
             print("Update available!")
+            self.update_required = True
             self.buttons['update'].show()
             self.buttons['update'].start_flickering()
+
+    def _show_update_required_dialog(self):
+        from source.utils.paths import APP_VERSION
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Warning)
+        msg.setWindowTitle("Update Required")
+        msg.setText(
+            "A new version of ChargeGrinder is available.\n"
+            "Please update before running the bot to avoid errors."
+        )
+        version_info = f"Current version:  v{APP_VERSION}"
+        if self._latest_version:
+            version_info += f"\nLatest version:    v{self._latest_version}"
+        msg.setInformativeText(version_info)
+        open_btn = msg.addButton("Open Releases", QMessageBox.ButtonRole.AcceptRole)
+        msg.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+        msg.exec()
+        if msg.clickedButton() == open_btn:
+            webbrowser.open('https://github.com/PhaiKub/Activision/releases/latest')
 
     def check_inputs(self):
         if self.is_lux and (self.count_exp + self.count_thd) < 1: return False
@@ -1347,6 +1370,10 @@ class MyApp(QWidget):
 
     def start(self):
         if self.thread is not None and self.thread.isRunning():
+            return
+
+        if self.update_required:
+            self._show_update_required_dialog()
             return
 
         self.get_params()

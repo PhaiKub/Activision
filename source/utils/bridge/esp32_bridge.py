@@ -195,9 +195,15 @@ class ESP32Bridge:
             if not self._ping_serial(ser):
                 ser.close()
                 raise BridgeError(f"Device on {port} did not respond to PING")
+            if not self._authenticate_serial(ser):
+                ser.close()
+                raise BridgeError(
+                    f"Firmware version mismatch on {port}. "
+                    "Please flash the updated firmware."
+                )
             self._ser  = ser
             self._port = port
-            logging.info(f"[ESP32Bridge] Connected on {port}")
+            logging.info(f"[ESP32Bridge] Connected and authenticated on {port}")
         except serial.SerialException as exc:
             raise BridgeError(f"Cannot open {port}: {exc}") from exc
 
@@ -220,11 +226,20 @@ class ESP32Bridge:
                 time.sleep(1.5)
                 ser.reset_input_buffer()
                 if self._ping_serial(ser):
+                    if not self._authenticate_serial(ser):
+                        ser.close()
+                        _cb(f"Firmware mismatch on {port} — skipping")
+                        raise BridgeError(
+                            f"Firmware version mismatch on {port}. "
+                            "Please flash the updated firmware."
+                        )
                     self._ser  = ser
                     self._port = port
-                    _cb(f"Found ESP32-S3 on {port} ✓")
+                    _cb(f"Found and authenticated ESP32-S3 on {port} ✓")
                     return
                 ser.close()
+            except BridgeError:
+                raise
             except (serial.SerialException, OSError):
                 pass
 
@@ -245,6 +260,32 @@ class ESP32Bridge:
                     return True
             return False
         except Exception:
+            return False
+
+    @staticmethod
+    def _authenticate_serial(ser: serial.Serial) -> bool:
+        """Send 'H <FIRMWARE_VERSION>' handshake and verify AUTH:OK response.
+
+        Returns True if the firmware accepted the version, False otherwise.
+        The firmware will enter LED_LOCKED (persistent red blink) on AUTH:FAIL.
+        """
+        try:
+            from source.utils.paths import FIRMWARE_VERSION
+            cmd = f"H {FIRMWARE_VERSION}\n".encode("ascii")
+            ser.write(cmd)
+            ser.flush()
+            deadline = time.monotonic() + PING_TIMEOUT
+            while time.monotonic() < deadline:
+                line = ser.readline().decode("ascii", errors="ignore").strip()
+                if line == "AUTH:OK":
+                    logging.info(f"[ESP32Bridge] Firmware v{FIRMWARE_VERSION} authenticated")
+                    return True
+                if line == "AUTH:FAIL":
+                    logging.warning(f"[ESP32Bridge] Firmware version mismatch — AUTH:FAIL")
+                    return False
+            return False
+        except Exception as exc:
+            logging.debug(f"[ESP32Bridge] _authenticate_serial error: {exc}")
             return False
 
     def close(self):
@@ -314,6 +355,27 @@ class ESP32Bridge:
             if not self.is_open():
                 return False
             return self._ping_serial(self._ser)
+
+    def get_firmware_version(self) -> str | None:
+        """Query the firmware version via 'V' command.
+
+        Returns the version string (e.g. '3.4.0') or None if the device
+        does not respond or the response cannot be parsed.
+        """
+        with self._lock:
+            if not self.is_open():
+                return None
+            try:
+                self._ser.write(b"V\n")
+                self._ser.flush()
+                deadline = time.monotonic() + PING_TIMEOUT
+                while time.monotonic() < deadline:
+                    line = self._ser.readline().decode("ascii", errors="ignore").strip()
+                    if line.startswith("VER:"):
+                        return line[4:]
+            except Exception as exc:
+                logging.debug(f"[ESP32Bridge] get_firmware_version error: {exc}")
+            return None
 
     def mouse_move_relative(self, dx: int, dy: int):
         self._send(f"M {int(dx)} {int(dy)}")

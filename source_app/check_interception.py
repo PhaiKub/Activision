@@ -4,6 +4,7 @@ import platform
 import threading
 
 import source.utils.params as p
+from source.utils.paths import APP_VERSION, FIRMWARE_VERSION
 
 LEGACY_DRIVER_PATHS = [
     r"C:\Windows\System32\drivers\keyboard.sys",
@@ -95,11 +96,12 @@ class ESP32ScanDialog(QWidget):
     """
 
     # Signals emitted from the background thread to the main thread
-    _sig_log       = pyqtSignal(str)
-    _sig_found     = pyqtSignal(str)   # port name
-    _sig_failed    = pyqtSignal(str)   # error message
-    _sig_flash_log = pyqtSignal(str)   # flash progress line
+    _sig_log        = pyqtSignal(str)
+    _sig_found      = pyqtSignal(str)   # port name
+    _sig_failed     = pyqtSignal(str)   # error message
+    _sig_flash_log  = pyqtSignal(str)   # flash progress line
     _sig_flash_done = pyqtSignal(bool, str)  # (success, message)
+    _sig_version    = pyqtSignal(str)   # "OK:<ver>" or "MISMATCH:<fw>:<app>"
 
     def __init__(self, parent=None):
         super().__init__(parent, Qt.WindowType.Dialog)
@@ -116,6 +118,7 @@ class ESP32ScanDialog(QWidget):
         self._sig_failed.connect(self._on_failed)
         self._sig_flash_log.connect(self._on_flash_log)
         self._sig_flash_done.connect(self._on_flash_done)
+        self._sig_version.connect(self._on_version_result)
 
     # ── UI ────────────────────────────────────────────────────
 
@@ -317,12 +320,61 @@ class ESP32ScanDialog(QWidget):
 
     @pyqtSlot(str)
     def _on_found(self, port):
-        self._success = True
-        self._title.setText(f"✅  Connected on {port}")
-        self._log.setText(f"ESP32-S3 found and ready on {port}.")
-        self._log.setStyleSheet("color: #7fffb0; padding: 6px; background: #0d1f14; border-radius: 4px;")
-        self._status.setText("Closing automatically…")
-        QTimer.singleShot(1000, self.close)
+        """ESP32 responded to PING — now verify firmware version before closing."""
+        self._title.setText(f"🔍  Checking firmware version on {port}…")
+        self._log.setText("Querying firmware version…")
+        self._log.setStyleSheet("color: #aaaaaa; padding: 6px; background: #1a1a1a; border-radius: 4px;")
+        self._status.setText("")
+        threading.Thread(target=self._check_firmware_version, daemon=True).start()
+
+    def _check_firmware_version(self):
+        """Background: query 'V' from the connected bridge and emit result."""
+        try:
+            from source.utils import os_windows_backend as _be
+            with _be._bridge_lock:
+                bridge = _be._bridge
+            if bridge is None:
+                self._sig_version.emit(f"OK:{FIRMWARE_VERSION}")
+                return
+            fw_ver = bridge.get_firmware_version()
+            if fw_ver is None or fw_ver == FIRMWARE_VERSION:
+                self._sig_version.emit(f"OK:{fw_ver or FIRMWARE_VERSION}")
+            else:
+                self._sig_version.emit(f"MISMATCH:{fw_ver}:{FIRMWARE_VERSION}")
+        except Exception as exc:
+            # On any error, allow connection to proceed
+            import logging
+            logging.debug(f"[FirmwareCheck] {exc}")
+            self._sig_version.emit(f"OK:{FIRMWARE_VERSION}")
+
+    @pyqtSlot(str)
+    def _on_version_result(self, result):
+        """Handle firmware version check result on main thread."""
+        if result.startswith("OK:"):
+            ver = result[3:]
+            self._success = True
+            self._title.setText(f"✅  Connected — firmware v{ver}")
+            self._log.setText(f"ESP32-S3 ready. Firmware version matches.")
+            self._log.setStyleSheet("color: #7fffb0; padding: 6px; background: #0d1f14; border-radius: 4px;")
+            self._status.setText("Closing automatically…")
+            QTimer.singleShot(1000, self.close)
+        else:
+            # MISMATCH:<fw_ver>:<app_ver>
+            parts = result.split(":", 2)
+            fw_ver  = parts[1] if len(parts) > 1 else "?"
+            app_ver = parts[2] if len(parts) > 2 else "?"
+            self._success = False
+            self._title.setText("⚠  Firmware Version Mismatch")
+            self._log.setText(
+                f"Firmware: v{fw_ver}  →  Required: v{app_ver}\n"
+                "Please flash the updated firmware before using the bot."
+            )
+            self._log.setStyleSheet("color: #ffe066; padding: 6px; background: #1a1800; border-radius: 4px;")
+            self._refresh_ports()
+            self._flash_row.show()
+            self._status.setText(
+                "Connect the COM (CH340) port and click ⚡ Flash Firmware to update."
+            )
 
     @pyqtSlot(str)
     def _on_failed(self, error):

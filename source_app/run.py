@@ -7,7 +7,7 @@ from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkRe
 
 
 class VersionChecker(QObject):
-    updateAvailable = pyqtSignal(bool)
+    updateAvailable = pyqtSignal(bool, str)   # (is_up_to_date, latest_tag)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -28,7 +28,7 @@ class VersionChecker(QObject):
             status_code = reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
             err_str = reply.errorString()
             print("Network error:", err_str, "status:", status_code)
-            self.updateAvailable.emit(True)
+            self.updateAvailable.emit(True, "")
             return
 
         data = bytes(reply.readAll()).decode('utf-8')
@@ -38,8 +38,9 @@ class VersionChecker(QObject):
             is_up_to_date = self._compare_versions(tag, APP_VERSION)
         except Exception as e:
             print("Parse error:", e)
+            tag = ""
             is_up_to_date = True
-        self.updateAvailable.emit(is_up_to_date)
+        self.updateAvailable.emit(is_up_to_date, tag)
 
     def _compare_versions(self, latest, current):
         try:
