@@ -41,7 +41,8 @@
 // ──── Config ────
 #define RGB_PIN        48
 #define RGB_BRIGHTNESS 10
-#define FIRMWARE_VERSION "3.4.1"  // Update alongside esp32_firmware/firmware_version
+#define FIRMWARE_VERSION "3.4.2"  // Update alongside esp32_firmware/firmware_version
+#define AUTH_TIMEOUT_MS 10000    // Lock if no handshake within 10s of first serial data
 
 USBHIDMouse Mouse;
 USBHIDKeyboard Keyboard;
@@ -58,6 +59,9 @@ unsigned long errorFlashStart = 0;
 bool blinkOn = false;
 bool everConnected = false;
 bool authenticated = false;  // set true only after successful H handshake
+bool hardLocked = false;     // once true, ALL commands blocked (including ping)
+unsigned long firstSerialTime = 0;  // timestamp of first serial data received
+bool serialSeen = false;     // has any serial data been received?
 
 void setRGB(uint8_t r, uint8_t g, uint8_t b) {
     neopixelWrite(RGB_PIN, r, g, b);
@@ -132,26 +136,47 @@ void processCommand(String cmd) {
     if (cmd.length() == 0) return;
     char type = cmd.charAt(0);
 
-    // ── Commands always available (no auth required) ──────────────────────────
+    // Track first serial activity for auth timeout
+    if (!serialSeen) {
+        serialSeen = true;
+        firstSerialTime = millis();
+    }
+
+    // ── Hard-locked: refuse EVERYTHING (no ping, no version, nothing) ─────────
+    if (hardLocked) {
+        // Don't even respond — device appears dead to unauthenticated bots
+        return;
+    }
+
+    // ── Handshake & info commands (available before auth) ─────────────────────
     switch (type) {
-    case 'P': Serial.println("PONG"); return;
-    case 'Q': Serial.println(usbReady ? "USB:1" : "USB:0"); return;
-    case 'V': Serial.println("VER:" FIRMWARE_VERSION); return;
     case 'H': {
         // Handshake: bot sends its expected firmware version
         String clientVer = cmd.substring(2);
         clientVer.trim();
         if (clientVer == FIRMWARE_VERSION) {
             authenticated = true;
+            hardLocked = false;
             if (currentLedState == LED_LOCKED) currentLedState = LED_READY;
             Serial.println("AUTH:OK");
         } else {
             authenticated = false;
-            currentLedState = LED_LOCKED;   // persistent red blink
+            hardLocked = true;              // wrong version → hard lock
+            currentLedState = LED_LOCKED;
             Serial.println("AUTH:FAIL");
         }
         return;
     }
+    case 'V': Serial.println("VER:" FIRMWARE_VERSION); return;
+    case 'P':
+        // Only respond PONG if auth hasn't timed out yet
+        if (authenticated || !serialSeen ||
+            (millis() - firstSerialTime < AUTH_TIMEOUT_MS)) {
+            Serial.println("PONG");
+        }
+        // Silently ignore ping after timeout without auth
+        return;
+    case 'Q': Serial.println(usbReady ? "USB:1" : "USB:0"); return;
     }
 
     // ── All other commands require a successful handshake ─────────────────────
@@ -232,11 +257,21 @@ void loop() {
         }
     }
 
+    // ── Auth timeout: hard-lock if serial data seen but no auth within deadline
+    if (serialSeen && !authenticated && !hardLocked) {
+        if (millis() - firstSerialTime >= AUTH_TIMEOUT_MS) {
+            hardLocked = true;
+            currentLedState = LED_LOCKED;
+        }
+    }
+
     // Detect Python disconnect → reset auth so next connection must handshake again
     if (everConnected && !Serial) {
         currentLedState = LED_READY;
         everConnected = false;
         authenticated = false;
+        hardLocked = false;
+        serialSeen = false;
     }
 
     delay(1);
