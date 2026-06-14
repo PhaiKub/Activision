@@ -40,9 +40,9 @@ PARTITIONS_ADDR  = "0x8000"
 APP_ADDR         = "0x10000"
 
 # arduino-cli FQBN
-#   USBMode=tinyusb  → USB-OTG (TinyUSB)   ← ใช้รัน HID bot
+#   USBMode=default  → USB-OTG (TinyUSB)   ← ใช้รัน HID bot
 #   CDCOnBoot=cdc    → CDC on Boot Enabled  ← ใช้ Serial ping
-FQBN = "esp32:esp32:esp32s3:USBMode=tinyusb,CDCOnBoot=cdc"
+FQBN = "esp32:esp32:esp32s3:USBMode=default,CDCOnBoot=cdc"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -117,11 +117,11 @@ def merge_bin(bootloader: str, partitions: str, app: str, out: str):
     _run([
         sys.executable, "-m", "esptool",
         "--chip", "esp32s3",
-        "merge_bin",
+        "merge-bin",
         "--output", out,
-        "--flash_mode", "dio",
-        "--flash_freq", "80m",
-        "--flash_size", "8MB",
+        "--flash-mode", "dio",
+        "--flash-freq", "80m",
+        "--flash-size", "8MB",
         BOOTLOADER_ADDR, bootloader,
         PARTITIONS_ADDR, partitions,
         APP_ADDR, app,

@@ -41,7 +41,7 @@
 // ──── Config ────
 #define RGB_PIN        48
 #define RGB_BRIGHTNESS 10
-#define FIRMWARE_VERSION "1.0.0"  // Update alongside esp32_firmware/firmware_version
+#define FIRMWARE_VERSION "3.4.1"  // Update alongside esp32_firmware/firmware_version
 
 USBHIDMouse Mouse;
 USBHIDKeyboard Keyboard;
