@@ -14,7 +14,6 @@ from source.utils.movement.inertia import get_inherited_velocity, update_inertia
 from source.utils.movement.pointer_gain import update_pointer_scale, execute_trajectory
 
 from source.utils.bridge.bridge import Bridge
-from source.utils.bridge.esp32_bridge import ESP32Bridge
 
 
 _bridge = None
@@ -23,20 +22,12 @@ _bridge_init_error = None
 _mouse_settings_active = False
 
 
-def _get_bridge(progress_callback=None):
+def _get_bridge():
     global _bridge, _bridge_init_error
     with _bridge_lock:
         if _bridge is None:
             try:
-                if p.INPUT_BACKEND == "esp32":
-                    _bridge = ESP32Bridge(
-                        port=p.ESP32_PORT,
-                        baud=p.ESP32_BAUD,
-                        auto_open=False,
-                    )
-                    _bridge.open(progress_callback=progress_callback)
-                else:
-                    _bridge = Bridge(auto_open=True)
+                _bridge = Bridge(auto_open=True)  # auto_open handles it
                 _bridge_init_error = None
             except Exception as exc:
                 _bridge_init_error = RuntimeError(f"Bridge initialization failed: {exc}")
@@ -48,7 +39,6 @@ def _ensure_mouse_settings():
     global _mouse_settings_active
     if _mouse_settings_active:
         return
-    # ESP32Bridge.mouse_settings_apply() is a no-op — safe to call either way
     _get_bridge().mouse_settings_apply()
     _mouse_settings_active = True
 
