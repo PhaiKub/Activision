@@ -4,7 +4,7 @@ import platform
 import threading
 
 import source.utils.params as p
-from source.utils.paths import APP_VERSION, FIRMWARE_VERSION
+from source.utils.paths import APP_VERSION, FIRMWARE_VERSION, BASE_PATH
 
 LEGACY_DRIVER_PATHS = [
     r"C:\Windows\System32\drivers\keyboard.sys",
@@ -398,12 +398,7 @@ class ESP32ScanDialog(QWidget):
             self._status.setText("⚠  Enter the COM port for flashing first.")
             return
 
-        import os, sys
-        if getattr(sys, "__compiled__", False):
-            base = os.path.dirname(sys.executable)
-        else:
-            base = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-        bin_path = os.path.join(base, "esp32_firmware", "esp32s3_usb_hid.bin")
+        bin_path = os.path.join(BASE_PATH, "esp32_firmware", "esp32s3_usb_hid.bin")
 
         if not os.path.isfile(bin_path):
             self._status.setText(

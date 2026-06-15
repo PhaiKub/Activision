@@ -2,11 +2,8 @@ import os, sys, platform
 
 
 def _runtime_base_path():
-    # For compiled binaries, keep asset lookup relative to the executable folder.
-    if "__compiled__" in globals():
-        exe_path = os.path.abspath(sys.executable)
-        return os.path.dirname(exe_path)
-
+    # Keep asset lookup inside the unpacked temporary directory.
+    # When compiled using Nuitka in onefile mode, __file__ points to the unpacked directory.
     return os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 
