@@ -59,6 +59,7 @@ def _cmd(output_name: str, console_mode: str):
         f"--include-data-files={os.path.join(ROOT_DIR, 'esp32_firmware', 'esp32s3_usb_hid.bin')}=esp32_firmware/esp32s3_usb_hid.bin",
         f"--include-data-files={os.path.join(ROOT_DIR, 'source', 'utils', 'bridge', 'bridge.dll')}=move_assets/bridge.dll",
         f"--include-data-files={os.path.join(ROOT_DIR, 'source', 'utils', 'movement', 'model.npz')}=move_assets/model.npz",
+        "--include-package-data=esptool",
         "--nofollow-import-to=source.utils.os_x11_backend",
         ENTRY,
     ]
