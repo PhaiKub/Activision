@@ -12,7 +12,8 @@ def _runtime_base_path():
 
 BASE_PATH = _runtime_base_path()
 
-VERSION_FILE = os.path.join(BASE_PATH, "version")
+VERSION_FILE          = os.path.join(BASE_PATH, "version")
+FIRMWARE_VERSION_FILE = os.path.join(BASE_PATH, "esp32_firmware", "firmware_version")
 
 
 def _read_app_version(default="0.0.0"):
@@ -23,7 +24,16 @@ def _read_app_version(default="0.0.0"):
         return default
 
 
-APP_VERSION = _read_app_version()
+def _read_firmware_version(default="1.0.0"):
+    try:
+        with open(FIRMWARE_VERSION_FILE, "r", encoding="utf-8") as fh:
+            return fh.read().strip() or default
+    except OSError:
+        return default
+
+
+APP_VERSION      = _read_app_version()
+FIRMWARE_VERSION = _read_firmware_version()
 
 
 ASSETS_DIR = os.path.join(BASE_PATH,"ImageAssets/UI")
