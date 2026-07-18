@@ -31,6 +31,10 @@ DEFAULT_BAUD     = 115200
 PING_TIMEOUT     = 1.5      # seconds to wait for PONG
 SCAN_TIMEOUT     = 1.2      # seconds per port while scanning
 CMD_TIMEOUT      = 2.0      # seconds to wait for OK/ERR after command
+BOOT_DELAY       = 1.5      # seconds to wait after opening (ESP32 resets on DTR)
+
+# Arduino Mouse.move() takes signed 8-bit deltas; larger moves must be split.
+HID_MOVE_MAX     = 127
 
 
 # ── Key code table for Arduino USBHIDKeyboard ─────────────────────────────────
@@ -190,12 +194,12 @@ class ESP32Bridge:
                 baudrate=self._baud,
                 timeout=PING_TIMEOUT,
             )
-            time.sleep(1.5)   # ESP32 resets on DTR; give it time to boot
+            time.sleep(BOOT_DELAY)   # ESP32 resets on DTR; give it time to boot
             ser.reset_input_buffer()
             if not self._ping_serial(ser):
                 ser.close()
                 raise BridgeError(f"Device on {port} did not respond to PING")
-            if not self._authenticate_serial(ser):
+            if not self._handshake_serial(ser):
                 ser.close()
                 raise BridgeError(
                     f"Firmware version mismatch on {port}. "
@@ -203,7 +207,7 @@ class ESP32Bridge:
                 )
             self._ser  = ser
             self._port = port
-            logging.info(f"[ESP32Bridge] Connected and authenticated on {port}")
+            logging.info(f"[ESP32Bridge] Connected on {port}")
         except serial.SerialException as exc:
             raise BridgeError(f"Cannot open {port}: {exc}") from exc
 
@@ -223,10 +227,10 @@ class ESP32Bridge:
             _cb(f"Trying {port}…")
             try:
                 ser = serial.Serial(port=port, baudrate=self._baud, timeout=SCAN_TIMEOUT)
-                time.sleep(1.5)
+                time.sleep(BOOT_DELAY)
                 ser.reset_input_buffer()
                 if self._ping_serial(ser):
-                    if not self._authenticate_serial(ser):
+                    if not self._handshake_serial(ser):
                         ser.close()
                         _cb(f"Firmware mismatch on {port} — skipping")
                         raise BridgeError(
@@ -235,7 +239,7 @@ class ESP32Bridge:
                         )
                     self._ser  = ser
                     self._port = port
-                    _cb(f"Found and authenticated ESP32-S3 on {port} ✓")
+                    _cb(f"Found ESP32-S3 on {port} ✓")
                     return
                 ser.close()
             except BridgeError:
@@ -263,11 +267,13 @@ class ESP32Bridge:
             return False
 
     @staticmethod
-    def _authenticate_serial(ser: serial.Serial) -> bool:
-        """Send 'H <FIRMWARE_VERSION>' handshake and verify AUTH:OK response.
+    def _handshake_serial(ser: serial.Serial) -> bool:
+        """Send 'H <FIRMWARE_VERSION>' version handshake and verify AUTH:OK.
 
-        Returns True if the firmware accepted the version, False otherwise.
-        The firmware will enter LED_LOCKED (persistent red blink) on AUTH:FAIL.
+        This is a firmware/host version gate, NOT a security check — the
+        firmware only unlocks its command set once the versions match so an
+        outdated host cannot drive incompatible firmware. Returns True on
+        AUTH:OK, False on AUTH:FAIL (firmware enters LED_LOCKED) or timeout.
         """
         try:
             from source.utils.paths import FIRMWARE_VERSION
@@ -278,14 +284,14 @@ class ESP32Bridge:
             while time.monotonic() < deadline:
                 line = ser.readline().decode("ascii", errors="ignore").strip()
                 if line == "AUTH:OK":
-                    logging.info(f"[ESP32Bridge] Firmware v{FIRMWARE_VERSION} authenticated")
+                    logging.info(f"[ESP32Bridge] Firmware v{FIRMWARE_VERSION} handshake OK")
                     return True
                 if line == "AUTH:FAIL":
-                    logging.warning(f"[ESP32Bridge] Firmware version mismatch — AUTH:FAIL")
+                    logging.warning("[ESP32Bridge] Firmware version mismatch — AUTH:FAIL")
                     return False
             return False
         except Exception as exc:
-            logging.debug(f"[ESP32Bridge] _authenticate_serial error: {exc}")
+            logging.debug(f"[ESP32Bridge] _handshake_serial error: {exc}")
             return False
 
     def close(self):
@@ -305,17 +311,65 @@ class ESP32Bridge:
     def get_port(self) -> str | None:
         return self._port
 
+    # ── Reconnect ─────────────────────────────────────────────────────────────
+
+    def _reconnect(self) -> bool:
+        """Try to re-open the last known port after a transient USB drop.
+
+        Caller must hold self._lock. Returns True if the link is live again.
+        """
+        if not self._port:
+            return False
+        # Drop the stale handle before retrying the same port.
+        if self._ser is not None:
+            try:
+                self._ser.close()
+            except Exception:
+                pass
+            self._ser = None
+        try:
+            logging.info(f"[ESP32Bridge] Attempting reconnect on {self._port}…")
+            self._connect(self._port)   # re-pings + re-handshakes
+            self._opened = True
+            return True
+        except BridgeError as exc:
+            logging.warning(f"[ESP32Bridge] Reconnect failed: {exc}")
+            return False
+
     # ── Internal send / receive ───────────────────────────────────────────────
 
-    def _send(self, cmd: str):
-        """Send a command line and wait for OK / ERR."""
+    def _write(self, cmd: str):
+        """Write a command line, reconnecting once on a transient serial error."""
+        raw = (cmd.strip() + "\n").encode("ascii")
+        try:
+            self._ser.write(raw)
+            self._ser.flush()
+        except (serial.SerialException, OSError) as exc:
+            logging.warning(f"[ESP32Bridge] Write failed ({exc}); trying reconnect")
+            self._opened = False
+            if not self._reconnect():
+                raise BridgeError(f"Serial link lost while sending {cmd!r}") from exc
+            self._ser.write(raw)
+            self._ser.flush()
+
+    def _send_noreply(self, cmd: str):
+        """Fire-and-forget: send a high-frequency command without awaiting OK.
+
+        Used for mouse move/scroll where a per-command round-trip would add
+        milliseconds of latency to every step. The firmware does not ACK these.
+        """
         with self._lock:
-            if not self.is_open():
+            if not self.is_open() and not self._reconnect():
+                raise BridgeError("ESP32Bridge is not connected")
+            self._write(cmd)
+
+    def _send(self, cmd: str):
+        """Send a command line and wait for OK / ERR (auto-reconnect once)."""
+        with self._lock:
+            if not self.is_open() and not self._reconnect():
                 raise BridgeError("ESP32Bridge is not connected")
             try:
-                raw = (cmd.strip() + "\n").encode("ascii")
-                self._ser.write(raw)
-                self._ser.flush()
+                self._write(cmd)
 
                 deadline = time.monotonic() + CMD_TIMEOUT
                 while time.monotonic() < deadline:
@@ -326,6 +380,13 @@ class ESP32Bridge:
                         raise BridgeError(f"ESP32 returned ERR for command: {cmd!r}")
                     if line:   # unexpected but non-empty — ignore and keep reading
                         logging.debug(f"[ESP32Bridge] unexpected: {line!r}")
+                # Timed out: purge any late/partial reply so it can't be
+                # mis-read as the ACK for the next command (protocol resync).
+                try:
+                    self._ser.reset_input_buffer()
+                except Exception:
+                    pass
+                raise BridgeError(f"Timed out waiting for ACK to command: {cmd!r}")
             except BridgeError:
                 raise
             except Exception as exc:
@@ -378,7 +439,15 @@ class ESP32Bridge:
             return None
 
     def mouse_move_relative(self, dx: int, dy: int):
-        self._send(f"M {int(dx)} {int(dy)}")
+        # Arduino Mouse.move() deltas are signed 8-bit; split larger moves into
+        # multiple steps so big jumps don't overflow/wrap on the firmware side.
+        dx, dy = int(dx), int(dy)
+        while dx or dy:
+            step_x = max(-HID_MOVE_MAX, min(HID_MOVE_MAX, dx))
+            step_y = max(-HID_MOVE_MAX, min(HID_MOVE_MAX, dy))
+            self._send_noreply(f"M {step_x} {step_y}")
+            dx -= step_x
+            dy -= step_y
 
     def mouse_press(self, button="left"):
         self._send(f"D {self._button_code(button)}")
@@ -390,7 +459,7 @@ class ESP32Bridge:
         self._send(f"C {self._button_code(button)}")
 
     def mouse_scroll(self, wheel: int):
-        self._send(f"S {int(wheel)}")
+        self._send_noreply(f"S {int(wheel)}")
 
     def key_press(self, key: str):
         self._send(f"K {self._key_code(key)}")

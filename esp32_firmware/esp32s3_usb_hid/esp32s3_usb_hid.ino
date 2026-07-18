@@ -42,9 +42,10 @@
 #define RGB_PIN 48
 #define RGB_BRIGHTNESS 10
 #define FIRMWARE_VERSION                                                       \
-  "3.4.1" // Update alongside esp32_firmware/firmware_version
+  "3.4.2" // Update alongside esp32_firmware/firmware_version
 #define AUTH_TIMEOUT_MS                                                        \
-  10000 // Lock if no handshake within 10s of first serial data
+  10000            // Lock if no handshake within 10s of first serial data
+#define MAX_CMD_LEN 64 // Drop the input buffer if no newline arrives by here
 
 USBHIDMouse Mouse;
 USBHIDKeyboard Keyboard;
@@ -212,16 +213,31 @@ void processCommand(String cmd) {
 
   triggerActive();
 
+  // ── High-frequency, fire-and-forget commands (no OK ACK) ──────────────────
+  // Mouse move/scroll are sent in a tight loop by the host; ACKing each one
+  // would add a serial round-trip of latency per step. The host does not wait
+  // for a reply, so these must NOT print anything.
   switch (type) {
   case 'M': {
     int sp1 = cmd.indexOf(' ', 0);
     int sp2 = cmd.indexOf(' ', sp1 + 1);
     if (sp1 < 0 || sp2 < 0)
-      break;
-    Mouse.move(cmd.substring(sp1 + 1, sp2).toInt(),
-               cmd.substring(sp2 + 1).toInt(), 0);
-    break;
+      return;
+    // Mouse.move deltas are signed 8-bit; clamp defensively.
+    long mx = cmd.substring(sp1 + 1, sp2).toInt();
+    long my = cmd.substring(sp2 + 1).toInt();
+    mx = constrain(mx, -127, 127);
+    my = constrain(my, -127, 127);
+    Mouse.move((char)mx, (char)my, 0);
+    return;
   }
+  case 'S':
+    Mouse.move(0, 0, constrain(cmd.substring(2).toInt(), -127, 127));
+    return;
+  }
+
+  // ── Acknowledged commands (reply OK / ERR) ────────────────────────────────
+  switch (type) {
   case 'C':
     Mouse.click(getBtn(cmd.substring(2).toInt()));
     break;
@@ -230,9 +246,6 @@ void processCommand(String cmd) {
     break;
   case 'U':
     Mouse.release(getBtn(cmd.substring(2).toInt()));
-    break;
-  case 'S':
-    Mouse.move(0, 0, cmd.substring(2).toInt());
     break;
   case 'K':
     Keyboard.press((uint8_t)cmd.substring(2).toInt());
@@ -294,6 +307,11 @@ void loop() {
       }
     } else {
       inputBuffer += c;
+      // Guard against unbounded growth from a stream with no line terminator
+      // (garbage / framing loss): the longest valid command is well under this.
+      if (inputBuffer.length() > MAX_CMD_LEN) {
+        inputBuffer = "";
+      }
     }
   }
 
