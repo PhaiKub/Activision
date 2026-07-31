@@ -1,9 +1,10 @@
-import json, os, threading
+import json, logging, os, threading
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from source_app.utils import *
+from source.utils.discord_webhook import validate_snowflake, validate_webhook_url
 from source_app.settings_manager import SettingsManager
 from source_app.widget import SelectizeWidget, IntField, AllIntField
 from source_app.button import CustomButton
@@ -128,7 +129,7 @@ class MyApp(QWidget):
         self.pause.hide()
         self.stop = QPushButton(self.pause)
         self.stop.setGeometry(358, 382, 73, 69)
-        self.stop.clicked.connect(self.stop_execution)
+        self.stop.clicked.connect(self.stop_by_user)
         self.stop.setStyleSheet('background: transparent; border: none;')
         self.play = QPushButton(self.pause)
         self.play.setGeometry(268, 382, 73, 69)
@@ -283,6 +284,7 @@ class MyApp(QWidget):
             return field
 
         add_button("webhook_open", "Discord Webhook", self.config, (44, 82, 192, 28), 13, self.toggle_webhook_panel)
+        add_button("hos_mode", "Arayashu", self.config, (244, 82, 192, 28), 13, self.update_button_icons, checkable=True)
 
         self.webhook_panel = QFrame(self.config)
         self.webhook_panel.setGeometry(24, 104, 652, 560)
@@ -307,6 +309,11 @@ class MyApp(QWidget):
         )
         add_label("webhook_lbl_url", "Webhook URL", (34, 138, 300, 28), 18)
         add_field("webhook_url", (34, 168, 582, 38), "https://discord.com/api/webhooks/...")
+        self.webhook_url.setEchoMode(QLineEdit.EchoMode.Password)
+        self.webhook_reveal = add_button(
+            "webhook_reveal", "Show URL", self.webhook_panel, (448, 136, 168, 28), 13,
+            self._toggle_webhook_url_visibility, checkable=True
+        )
         add_label("webhook_lbl_thread", "Thread ID (optional)", (34, 224, 300, 28), 18)
         add_field("webhook_thread", (34, 254, 582, 38), "123456789012345678", digit_validator)
 
@@ -519,10 +526,10 @@ class MyApp(QWidget):
             self.activate_ego_gifts({})
             buff = [1]*4 + [0]*6
             if self.hard:
-                on = [False, True, False, False, False, False, False]
+                on = [False, True, False, False, False, False, False, False]
                 self.set_buttons_active(on + buff)
             else:
-                on = [False, True, False, False, True, False, False]
+                on = [False, True, False, False, True, False, False, False]
                 self.set_buttons_active(on + buff)
             self.sm.delete_config()
             self.sm.save_settings()
@@ -643,7 +650,7 @@ class MyApp(QWidget):
                 'icon': Bot.APP_PTH['sel_lux']
             }) for i in range(5)
         ]
-    
+
     def _get_buff(self):
         return [
             (f'buff{i}', {
@@ -828,6 +835,7 @@ class MyApp(QWidget):
 
         for name, settings in self._get_button_on()[:7] + self._get_card_order() + self._get_buff():
             self.buttons[name] = CustomButton(self.config, settings)
+
         for name, settings in self._get_button_on()[7:]:
             self.buttons[name] = CustomButton(self.lux, settings)
 
@@ -891,6 +899,9 @@ class MyApp(QWidget):
             else:
                 self.buttons[f"on{i + 7}"].setChecked(False)
                 self.buttons[f"on{i + 7}"].setIcon(QIcon())
+
+            if len(state) > 8:
+                self.hos_mode.setChecked(bool(state[8]))
     
     def save_affinity(self):
         state = dict()
@@ -902,6 +913,7 @@ class MyApp(QWidget):
         extra = [self.count, self.count_exp, self.count_thd]
         for i in range(5):
             extra.append(self.buttons[f"on{i + 7}"].isChecked())
+        extra.append(self.hos_mode.isChecked())
         self.sm.set_extra(extra)
         self.sync_webhook_settings(show_message=False)
         self.sm.save_settings()
@@ -917,13 +929,13 @@ class MyApp(QWidget):
         self.set_widgets()
         buff = [1]*4 + [0]*6
         if self.hard:
-            on = [False, True, False, False, False, False, False]
+            on = [False, True, False, False, False, False, False, False]
             self.set_buttons_active(on + buff)
             self.buttons['on0'].config['icon'] = Bot.APP_PTH['sel1_hard']
             for lbl in self.hard_confs:
                 lbl.show()
         else:
-            on = [False, True, False, False, True, False, False]
+            on = [False, True, False, False, True, False, False, False]
             self.set_buttons_active(on + buff)
             self.buttons['on0'].config['icon'] = Bot.APP_PTH['sel1_extra']
             for lbl in self.hard_confs:
@@ -1001,6 +1013,11 @@ class MyApp(QWidget):
         ):
             self._set_webhook_toggle_text(button, name)
 
+    def _toggle_webhook_url_visibility(self):
+        visible = self.webhook_reveal.isChecked()
+        self.webhook_url.setEchoMode(QLineEdit.EchoMode.Normal if visible else QLineEdit.EchoMode.Password)
+        self.webhook_reveal.setText("Hide URL" if visible else "Show URL")
+
     def get_webhook_ui(self):
         data = {}
         for key, widget in (
@@ -1027,13 +1044,13 @@ class MyApp(QWidget):
             return False
 
         checks = [
-            ("/api/webhooks/" not in data["url"], "Discord webhook URL looks invalid."),
-            (data["thread_id"] and not data["thread_id"].isdigit(), "Thread ID must contain only digits."),
-            (data["ping_role_id"] and not data["ping_role_id"].isdigit(), "Ping Role ID must contain only digits."),
-            (data["ping_on_finish"] and not data["ping_role_id"], "Ping is enabled, but Role ID is empty.")
+            validate_webhook_url(data["url"]),
+            validate_snowflake(data["thread_id"], "Thread ID"),
+            validate_snowflake(data["ping_role_id"], "Ping Role ID"),
+            "Ping is enabled, but Role ID is empty." if data["ping_on_finish"] and not data["ping_role_id"] else None
         ]
-        for failed, message in checks:
-            if failed:
+        for message in checks:
+            if message:
                 if show_message:
                     self.show_error(message)
                 return False
@@ -1056,6 +1073,8 @@ class MyApp(QWidget):
         env_values = {
             "CGRINDER_DISCORD_WEBHOOK_URL": self.webhook_settings["url"],
             "CGRINDER_DISCORD_TOTAL_RUNS": run_target,
+            "CGRINDER_DISCORD_EXP_TOTAL_RUNS": str(max(0, self.count_exp)),
+            "CGRINDER_DISCORD_THREAD_TOTAL_RUNS": str(max(0, self.count_thd)),
             "CGRINDER_DISCORD_COMPACT_MODE": "1" if self.webhook_settings["compact_mode"] else "0",
             "CGRINDER_DISCORD_PING_ON_FINISH": "1" if self.webhook_settings["ping_on_finish"] else "0",
             "CGRINDER_DISCORD_THREAD_ID": self.webhook_settings["thread_id"],
@@ -1252,6 +1271,7 @@ class MyApp(QWidget):
             activated.append(self.buttons[f'on{i}'].isChecked())
         for i in range(10):
             activated.append(getattr(self.buttons[f'buff{i}'], 'config', {}).get('state', 0))
+        activated.append(self.hos_mode.isChecked())
         return activated
     
     def ask_csv(self):
@@ -1283,17 +1303,18 @@ class MyApp(QWidget):
 
     
     def set_buttons_active(self, states):
+        if not states: return
+        if len(states) == 18 and isinstance(states[7], bool) and not isinstance(states[8], bool):
+            states = states[:7] + states[8:] + [states[7]]
         on_buttons = [self.buttons[f'on{i}'] for i in range(7)]
         buff_buttons = [self.buttons[f'buff{i}'] for i in range(10)]
-
         buttons = on_buttons + buff_buttons
-
         for button, state in zip(buttons, states):
             button.setChecked(state)
             if int(state) == 1:
                 icon_path = getattr(button, 'config', {}).get('icon', '')
                 if icon_path:
-                    button.setIcon(QIcon(icon_path))     
+                    button.setIcon(QIcon(icon_path))
             elif int(state) > 1:
                 button.setIcon(QIcon(Bot.APP_PTH[f'grace{"+"*int(state - 1)}']))
             else:
@@ -1301,6 +1322,8 @@ class MyApp(QWidget):
             button.setIconSize(button.size())
             if 'state' in getattr(button, 'config', {}):
                 button.config['state'] = int(state)
+        if len(states) > 17:
+            self.hos_mode.setChecked(bool(states[17]))
 
 
     def activate_ego_gifts(self, data):
@@ -1720,14 +1743,16 @@ class MyApp(QWidget):
         
 
         self.settings = {
-            'bonus'      : self.buttons['on0'].isChecked() if not self.is_lux else self.buttons['on10'].isChecked(),
+            'bonus'      : self.buttons['on0'].isChecked(),
+            'collect'    : self.buttons['on10'].isChecked(),
             'restart'    : self.buttons['on1'].isChecked() if not self.is_lux else self.buttons['on7'].isChecked(),
             'altf4'      : [self.buttons['on2'].isChecked(), self.buttons['on8'].isChecked()],
             'enkephalin' : self.buttons['on3'].isChecked() if not self.is_lux else self.buttons['on9'].isChecked(),
             'skip'       : self.buttons['on4'].isChecked(),
             'wishmaking' : self.buttons['on5'].isChecked(),
-            'winrate'    : self.hard or self.buttons['on6'].isChecked(),
+            'winrate'    : self.hard or self.buttons['on6'].isChecked() if not p.HOS_MODE else self.buttons['on6'].isChecked(), # Thanks to @zombpr for finding this
             'infinity'   : self.hard and self.buttons['on6'].isChecked(),
+            'hos_mode'   : self.hos_mode.isChecked(),
             'buff'       : [getattr(self.buttons[f'buff{i}'], 'config', {}).get('state', 0) for i in range(10)],
             'card'       : self.get_cards(),
             'keywordless': {Bot.WORDLESS[id]['name']: state for id, state in self.keywordless.items()}
@@ -1753,6 +1778,7 @@ class MyApp(QWidget):
         QApplication.processEvents()
 
         p.stop_event.clear()
+        p.STOP_REASON = None
 
         self.thread = QThread()
         self.worker = BotWorker(
@@ -1797,8 +1823,16 @@ class MyApp(QWidget):
         p.pause_event.set()
 
     @pyqtSlot()
+    def stop_by_user(self):
+        p.STOP_REASON = "Cancelled by user"
+        self.stop_execution()
+
+    @pyqtSlot()
     def stop_execution(self):
         print("Stopping execution...")
+        if p.STOP_REASON:
+            logging.info(f"Execution stopped: {p.STOP_REASON}")
+            p.STOP_REASON = None
         p.stop_event.set()
         p.pause_event.set()
 

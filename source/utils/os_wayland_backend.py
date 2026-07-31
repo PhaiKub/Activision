@@ -1,15 +1,15 @@
-# Linux (X11) port
-# Extra dependencies: python-xlib, mss
+# Linux (Wayland) port
+# Extra dependencies: python-xlib (pointer/keymap via XWayland), evdev (uinput),
+# PyGObject + GStreamer (PipeWire screen capture)
 
 import atexit, signal, threading
 
-import mss
 import evdev
 from evdev import UInput, ecodes as e
-from Xlib import X, display, XK
 import numpy as np, time, math, random
 
 import source.utils.params as p
+import source.utils.wayland as wl
 from source.utils.profiles import get_macro_profile, maybe_rhythm_jitter, randomize_with_profile
 from source.utils.movement.builder import build_trajectory
 from source.utils.movement.inertia import get_inherited_velocity, update_inertia
@@ -31,9 +31,23 @@ def easeOutElastic(t):
         return 1
     return 2**(-10 * t) * math.sin((t * 10 - 0.75) * c4) + 1
 
-# Display + root
-_disp = display.Display()
-_root = _disp.screen().root
+
+# --- X (XWayland) connection, used only for pointer position and layout-aware keycodes ---
+_disp = None
+_root = None
+_x_lock = threading.Lock()
+
+def _get_x_display():
+    """Lazily connect to the (XWayland) X server for pointer/keymap queries."""
+    global _disp, _root
+    if _disp is None:
+        with _x_lock:
+            if _disp is None:
+                from Xlib import display
+                _disp = display.Display()
+                _root = _disp.screen().root
+    return _disp, _root
+
 
 FAILSAFE = True
 FAILSAFE_ENABLED = True
@@ -43,74 +57,35 @@ def set_failsafe(state=True):
     FAILSAFE_ENABLED = state
 
 def get_screen_size():
-    """Return (width, height) of the X screen (root window)."""
-    screen = _disp.screen()
-    return screen.width_in_pixels, screen.height_in_pixels
+    """Return (width, height) of the virtual desktop."""
+    return wl.get_screen_size()
 
 def get_position():
-    """Return (x, y) cursor position relative to root."""
-    pointer = _root.query_pointer()
-    return pointer.root_x, pointer.root_y
+    """Return (x, y) cursor position in the compositor's logical coordinates."""
+    _, root = _get_x_display()
+    pointer = root.query_pointer()
+    px, py = int(pointer.root_x), int(pointer.root_y)
 
-def _get_window_title(win):
-    """Return window title attempting _NET_WM_NAME then WM_NAME."""
     try:
-        atom_net_wm_name = _disp.intern_atom('_NET_WM_NAME')
-        prop = win.get_full_property(atom_net_wm_name, X.AnyPropertyType)
-        if prop and prop.value:
-            # prop.value may be bytes -> decode
-            if isinstance(prop.value, bytes):
-                try:
-                    return prop.value.decode('utf-8')
-                except Exception:
-                    return prop.value.decode('latin-1', errors='ignore')
-            return prop.value
-
-        # Fallback to WM_NAME
-        prop2 = win.get_wm_name()
-        if prop2:
-            return prop2
+        min_x, min_y, max_x, max_y = wl.get_virtual_screen_bounds()
+        geom = root.get_geometry()
+        x_w, x_h = int(geom.width), int(geom.height)
+        log_w, log_h = max_x - min_x, max_y - min_y
+        if x_w > 0 and x_h > 0 and log_w > 0 and log_h > 0 and (x_w, x_h) != (log_w, log_h):
+            return (
+                min_x + int(round(px * log_w / x_w)),
+                min_y + int(round(py * log_h / x_h)),
+            )
     except Exception:
         pass
-    return ""
+    return px, py
 
 def getActiveWindowTitle():
     """Return active window title, or empty string if none."""
     if not FAILSAFE_ENABLED:
         return "LimbusCompany"
-    try:
-        atom_net_active = _disp.intern_atom('_NET_ACTIVE_WINDOW')
-        prop = _root.get_full_property(atom_net_active, X.AnyPropertyType)
-        if not prop:
-            return ""
-        win_id = prop.value[0]
-        win = _disp.create_resource_object('window', win_id)
-        title = _get_window_title(win)
-        return title or ""
-    except Exception:
-        return ""
+    return wl.active_title()
 
-# Helper to find a top-level window by title (exact or substring)
-def _find_window_by_name(name):
-    """Search _NET_CLIENT_LIST for a window whose title contains `name`."""
-    try:
-        atom_clients = _disp.intern_atom('_NET_CLIENT_LIST')
-        prop = _root.get_full_property(atom_clients, X.AnyPropertyType)
-        if not prop:
-            return None
-        for wid in prop.value:
-            try:
-                w = _disp.create_resource_object('window', wid)
-                title = _get_window_title(w)
-                if not title:
-                    continue
-                if title == name or name in title:
-                    return w
-            except Exception:
-                continue
-    except Exception:
-        pass
-    return None
 
 def center(target=None):
     """
@@ -120,19 +95,10 @@ def center(target=None):
      - The primary screen (if no target)
     """
     if isinstance(target, str):
-        w = _find_window_by_name(target)
-        if not w:
+        win = wl.find_window(target)
+        if not win:
             raise ValueError(f"Window not found: {target}")
-        geom = w.get_geometry()
-        # translate window coords to root coords
-        try:
-            tx = w.translate_coords(_root, 0, 0)
-            left, top = tx.x, tx.y
-        except Exception:
-            left, top = geom.x, geom.y
-        center_x = left + geom.width // 2
-        center_y = top + geom.height // 2
-        return center_x, center_y
+        return win.left + win.width // 2, win.top + win.height // 2
 
     elif isinstance(target, (tuple, list)) and len(target) >= 4:
         left, top, width, height = target[:4]
@@ -141,7 +107,7 @@ def center(target=None):
     else:
         width, height = get_screen_size()
         return (width // 2, height // 2)
-    
+
 
 def get_virtual_screen_bounds():
     """
@@ -149,35 +115,8 @@ def get_virtual_screen_bounds():
     Equivalent to Windows' SM_XVIRTUALSCREEN / SM_CXVIRTUALSCREEN.
     Coordinates may be negative.
     """
-    from Xlib.ext import randr
+    return wl.get_virtual_screen_bounds()
 
-    res = randr.get_screen_resources(_root)
-
-    min_x = min_y = float("inf")
-    max_x = max_y = float("-inf")
-
-    for crtc in res.crtcs:
-        info = randr.get_crtc_info(_root, crtc, res.config_timestamp)
-
-        # Skip disabled CRTCs
-        if info.width == 0 or info.height == 0:
-            continue
-
-        min_x = min(min_x, info.x)
-        min_y = min(min_y, info.y)
-        max_x = max(max_x, info.x + info.width)
-        max_y = max(max_y, info.y + info.height)
-
-    # Fallback: no RandR info
-    if min_x == float("inf"):
-        geom = _root.get_geometry()
-        min_x = geom.x
-        min_y = geom.y
-        max_x = geom.x + geom.width
-        max_y = geom.y + geom.height
-
-    return int(min_x), int(min_y), int(max_x), int(max_y)
-    
 
 def clip_region_to_virtual(region):
     x, y, w, h = region
@@ -196,34 +135,31 @@ def clip_region_to_virtual(region):
         return None
 
     return x2, y2, w2, h2
-  
+
+
+def prepare_capture():
+    """
+    Open the portal/PipeWire session up front (this is where the compositor's
+    window-picker dialog appears, unless a restore token skips it) and wait for
+    the first frame. Called before the start countdown so the user interaction
+    doesn't eat into it.
+    """
+    wl.screenshot()
+
 
 def screenshot(imageFilename=None, region=None):
     """
-    Capture screenshot using XShm via mss (falls back to XGetImage if needed).
+    Capture screenshot from the persistent PipeWire stream.
     region: (x, y, width, height)
     Returns numpy array in BGR order (height, width, 3) for cv2 compatibility.
     """
-    with mss.mss() as sct:
-        if region:
-            min_x, min_y, _, _ = p.SCREEN
-            left, top, width, height = region
+    img = wl.screenshot(tuple(region) if region else None)
 
-            x0 = left - min_x
-            y0 = top - min_y
+    if imageFilename:
+        import cv2
+        cv2.imwrite(imageFilename, img)
 
-            monitor = {"left": x0, "top": y0, "width": width, "height": height}
-        else:
-            monitor = sct.monitors[0]
-
-        full = sct.grab(monitor)
-        img = np.array(full)[:, :, :3]
-
-        if imageFilename:
-            import cv2
-            cv2.imwrite(imageFilename, img)
-
-        return img
+    return img
 
 
 # --- UINPUT VIRTUAL DEVICE SETUP ---
@@ -252,7 +188,7 @@ _EVDEV_KEYSYM_MAP = {
     'tab': e.KEY_TAB, 'backspace': e.KEY_BACKSPACE, 'delete': e.KEY_DELETE,
     'insert': e.KEY_INSERT, 'home': e.KEY_HOME, 'end': e.KEY_END,
     'pageup': e.KEY_PAGEUP, 'pagedown': e.KEY_PAGEDOWN,
-    'shift': e.KEY_LEFTSHIFT, 'ctrl': e.KEY_LEFTCTRL, 
+    'shift': e.KEY_LEFTSHIFT, 'ctrl': e.KEY_LEFTCTRL,
     'alt': e.KEY_LEFTALT, 'win': e.KEY_LEFTMETA,
     'rightshift': e.KEY_RIGHTSHIFT, 'rightctrl': e.KEY_RIGHTCTRL,
     'rightalt': e.KEY_RIGHTALT, 'rightwin': e.KEY_RIGHTMETA,
@@ -280,7 +216,7 @@ for i in range(1, 25):
 _numpad = {
     'kp0': e.KEY_KP0, 'kp1': e.KEY_KP1, 'kp2': e.KEY_KP2, 'kp3': e.KEY_KP3,
     'kp4': e.KEY_KP4, 'kp5': e.KEY_KP5, 'kp6': e.KEY_KP6, 'kp7': e.KEY_KP7,
-    'kp8': e.KEY_KP8, 'kp9': e.KEY_KP9, 'kpdot': e.KEY_KPDOT, 
+    'kp8': e.KEY_KP8, 'kp9': e.KEY_KP9, 'kpdot': e.KEY_KPDOT,
     'kpenter': e.KEY_KPENTER, 'kpplus': e.KEY_KPPLUS, 'kpminus': e.KEY_KPMINUS,
     'kpasterisk': e.KEY_KPASTERISK, 'kpslash': e.KEY_KPSLASH, 'kpequal': e.KEY_KPEQUAL,
 }
@@ -304,7 +240,7 @@ KEYBOARD_FALLBACK = {
     'bustype': 0x03,
     'phys': 'usb-0000:00:14.0-1.3/input0',
     'events': {
-        e.EV_KEY: _safe_keys, 
+        e.EV_KEY: _safe_keys,
         e.EV_LED: [e.LED_NUML, e.LED_CAPSL, e.LED_SCROLLL, e.LED_COMPOSE, e.LED_KANA],
         e.EV_MSC: [e.MSC_SCAN],
     },
@@ -321,20 +257,23 @@ _uinput_lock = threading.Lock()
 def clone_device(path: str) -> UInput:
     real = evdev.InputDevice(path)
     caps = real.capabilities()
-    
+
     if e.EV_KEY in caps:
-        caps[e.EV_KEY] = list(set(caps[e.EV_KEY] + _safe_keys))
+        caps[e.EV_KEY] = sorted(set(caps[e.EV_KEY]) | set(_safe_keys))
     else:
         caps[e.EV_KEY] = _safe_keys
-    
+
     if e.EV_MSC not in caps:
         caps[e.EV_MSC] = [e.MSC_SCAN]
     elif e.MSC_SCAN not in caps[e.EV_MSC]:
         caps[e.EV_MSC].append(e.MSC_SCAN)
 
-    if e.EV_REP not in caps:
-        caps[e.EV_REP] = [e.REP_DELAY, e.REP_PERIOD]
-    
+    events = {
+        ev_type: codes
+        for ev_type, codes in caps.items()
+        if ev_type not in (e.EV_SYN, e.EV_FF, e.EV_REP)
+    }
+
     kwargs = {
         "name": real.name,
         "vendor": real.info.vendor,
@@ -344,8 +283,7 @@ def clone_device(path: str) -> UInput:
         "phys": real.phys if real.phys else "usb-0000:00:14.0-1/input0",
         "input_props": real.input_props(),
     }
-    # raise Exception
-    device = UInput.from_device(real, filtered_types=(e.EV_SYN, e.EV_FF, e.EV_REP), **kwargs)
+    device = UInput(events=events, **kwargs)
     _print_device_data(kwargs)
     return device
 
@@ -353,7 +291,7 @@ def clone_device(path: str) -> UInput:
 def _is_virtual(dev):
     name = (dev.name or "").lower()
     phys = (dev.phys or "").lower()
-    
+
     if any(x in name for x in ["virtual", "uinput", "keyd", "python"]):
         return True
     if not phys or phys.startswith("py-evdev"):
@@ -364,28 +302,28 @@ def _is_touchpad(caps, dname):
     abs_caps = caps.get(e.EV_ABS, [])
     abs_codes = [cap[0] for cap in abs_caps] if abs_caps else []
     key_caps = caps.get(e.EV_KEY, [])
-    
+
     is_touchpad = (
         # Multi-touch capabilities
         e.ABS_MT_SLOT in abs_codes or
         e.ABS_MT_POSITION_X in abs_codes or
         e.ABS_MT_POSITION_Y in abs_codes or
-        
+
         # Pressure/touch sensors
         e.ABS_PRESSURE in abs_codes or
-        
+
         # Touchpad-specific buttons
         e.BTN_TOOL_FINGER in key_caps or
         e.BTN_TOUCH in key_caps or
         e.BTN_TOOL_DOUBLETAP in key_caps or
         e.BTN_TOOL_TRIPLETAP in key_caps or
-        
+
         # Absolute positioning (touchpads report abs x/y)
         (e.ABS_X in abs_codes and e.ABS_Y in abs_codes) or
-        
+
         # Name-based detection
-        any(name in (dname or "").lower() 
-            for name in ["touchpad", "trackpad", "synaptics", 
+        any(name in (dname or "").lower()
+            for name in ["touchpad", "trackpad", "synaptics",
                         "elan", "clickpad", "glidepoint"])
     )
     return is_touchpad
@@ -400,7 +338,7 @@ def _pick_device_paths():
     for path in paths:
         try:
             dev = evdev.InputDevice(path)
-            
+
             if _is_virtual(dev):
                 continue
 
@@ -418,10 +356,10 @@ def _pick_device_paths():
                 continue
 
             kbd_data[path] = {"dev": dev, "key_caps": caps.get(e.EV_KEY, [])}
-        
+
         except Exception:
             continue
-        
+
     for path in kbd_data:
         try:
             dev = kbd_data[path]["dev"]
@@ -433,7 +371,7 @@ def _pick_device_paths():
                 name = (dev.name or "").lower()
                 phys = (dev.phys or "").lower()
                 score = 0
-                
+
                 if dev.info.bustype == e.BUS_USB:
                     score += 20
                 if "keyboard" in name or "kbd" in name:
@@ -547,8 +485,10 @@ def release_all(signum=None, frame=None):
         except Exception:
             pass
 
-signal.signal(signal.SIGINT, release_all)
-signal.signal(signal.SIGTERM, release_all)
+
+if threading.current_thread() is threading.main_thread():
+    signal.signal(signal.SIGINT, release_all)
+    signal.signal(signal.SIGTERM, release_all)
 atexit.register(release_all)
 
 # Kick off async init immediately; first input call blocks only if still warming up.
@@ -680,7 +620,7 @@ def _apply_macro_rhythm(profile=None):
 def moveTo(x, y, duration=0, delay=0.0, tsize=(3.0, 3.0), offset_x=0, offset_y=0, curve=1, n_sub=None, inertia=False):
     _fail_safe_check()
     dev = _get_mouse()
-    
+
     start_x, start_y = get_position()
     end_x = int(round(x + offset_x))
     end_y = int(round(y + offset_y))
@@ -689,13 +629,14 @@ def moveTo(x, y, duration=0, delay=0.0, tsize=(3.0, 3.0), offset_x=0, offset_y=0
     tsize = tsize if tsize else (20.0, 20.0)
     if _within_target((start_x, start_y), (end_x, end_y), tsize):
         return
-    
+
     if delay > 0:
         profile = get_macro_profile()
         time.sleep(randomize_with_profile(delay, profile=profile, key="delay_jitter"))
 
     duration_override = duration if duration and duration > 0 else None
-    
+
+    attempts = 0
     while True:
         traj = build_trajectory(
             (start_x, start_y),
@@ -718,7 +659,16 @@ def moveTo(x, y, duration=0, delay=0.0, tsize=(3.0, 3.0), offset_x=0, offset_y=0
            _within_target((start_x, start_y), (end_x, end_y), tsize):
             break
 
-        update_pointer_scale(raw_delta, raw_path[0], (start_x, start_y))
+        attempts += 1
+        if attempts >= 100:
+            release_all()
+            raise FailSafeException(
+                f"Mouse cannot reach ({end_x}, {end_y}); pointer reads ({start_x}, {start_y}) "
+                f"after {attempts} correction passes. Cursor position feedback appears broken "
+                "(XWayland pointer tracking / display scaling mismatch)."
+            )
+
+        update_pointer_scale(raw_delta, raw_path[0], (start_x, start_y))        
         _fail_safe_check()
 
     update_inertia(raw_path, times)
@@ -767,7 +717,7 @@ def scroll(clicks, x=None, y=None):
         moveTo(x, y)
     direction = 1 if clicks > 0 else -1
     count = abs(int(clicks))
-    
+
     for _ in range(count):
         _fail_safe_check()
         dev.write(e.EV_REL, e.REL_WHEEL, direction)
@@ -789,43 +739,52 @@ def _get_x_keycode(keysym):
     if keysym in _X_KEYCODE_CACHE:
         return _X_KEYCODE_CACHE[keysym]
 
-    keycode = _disp.keysym_to_keycode(keysym)
+    disp, _ = _get_x_display()
+    keycode = disp.keysym_to_keycode(keysym)
     # X keycode 0 means "no key"
     result = keycode if keycode != 0 else None
-    
+
     _X_KEYCODE_CACHE[keysym] = result
     return result
 
 # Map lowercase letters and numbers to X keysyms for X11 lookup
 _ASCII_TO_XK = {}
-for c in "abcdefghijklmnopqrstuvwxyz":
-    _ASCII_TO_XK[c] = getattr(XK, f"XK_{c}")
-for c in "0123456789":
-    _ASCII_TO_XK[c] = getattr(XK, f"XK_{c}")
-# Add symbols
-_ASCII_TO_XK.update({
-    '-': XK.XK_minus, '=': XK.XK_equal, '[': XK.XK_bracketleft, ']': XK.XK_bracketright,
-    ';': XK.XK_semicolon, "'": XK.XK_apostrophe, '`': XK.XK_grave, '\\': XK.XK_backslash,
-    ',': XK.XK_comma, '.': XK.XK_period, '/': XK.XK_slash, ' ': XK.XK_space,
-})
+
+def _build_ascii_to_xk():
+    from Xlib import XK
+    mapping = {}
+    for c in "abcdefghijklmnopqrstuvwxyz":
+        mapping[c] = getattr(XK, f"XK_{c}")
+    for c in "0123456789":
+        mapping[c] = getattr(XK, f"XK_{c}")
+    mapping.update({
+        '-': XK.XK_minus, '=': XK.XK_equal, '[': XK.XK_bracketleft, ']': XK.XK_bracketright,
+        ';': XK.XK_semicolon, "'": XK.XK_apostrophe, '`': XK.XK_grave, '\\': XK.XK_backslash,
+        ',': XK.XK_comma, '.': XK.XK_period, '/': XK.XK_slash, ' ': XK.XK_space,
+    })
+    return mapping
 
 def _key_to_ecode(key):
     """Convert key name to evdev scancode using layout-aware X11 mapping."""
+    global _ASCII_TO_XK
+    if not _ASCII_TO_XK:
+        _ASCII_TO_XK = _build_ascii_to_xk()
+
     key_lower = key.lower()
-    
+
     # LETTERS & SYMBOLS
     if key_lower in _ASCII_TO_XK:
         xk = _ASCII_TO_XK[key_lower]
         x_keycode = _get_x_keycode(xk)
-        
+
         if x_keycode is not None:
             # Shift the X11 code to match evdev
             evdev_code = x_keycode - 8
             return evdev_code
-            
+
     if key_lower in _EVDEV_KEYSYM_MAP:
         return _EVDEV_KEYSYM_MAP[key_lower]
-    
+
     return None
 
 def press(keys, presses=1, interval=0.1, delay=0.09):
@@ -833,7 +792,7 @@ def press(keys, presses=1, interval=0.1, delay=0.09):
     profile = get_macro_profile()
     _apply_macro_rhythm(profile)
     time.sleep(randomize_with_profile(delay, profile=profile, key="delay_jitter"))
-    
+
     for _p in range(presses):
         if isinstance(keys, str):
             keys = [keys]
@@ -863,19 +822,6 @@ def hotkey(*args, **kwargs):
     press(list(args), **kwargs)
 
 
-def get_absolute_position(win):
-    x = y = 0
-    while True: # Ugly!!!
-        geom = win.get_geometry()
-        x += geom.x
-        y += geom.y
-        parent = win.query_tree().parent
-        if parent.id == _root.id:
-            break
-        win = parent
-    return x, y
-
-
 def check_window():
     min_x, min_y, max_x, max_y = p.SCREEN
     left, top, width, height = p.WINDOW
@@ -894,17 +840,15 @@ def set_window():
     Find window by p.LIMBUS_NAME, calculate its client center and set p.WINDOW
     to a centered 16:9 region inside the client area (like Windows module).
     """
-    w = _find_window_by_name(p.LIMBUS_NAME)
-    if not w:
+    win = wl.find_window(p.LIMBUS_NAME)
+    if not win:
         raise WindowError(f"Window '{p.LIMBUS_NAME}' not found.")
 
-    _disp.sync()
-    try:
-        geom = w.get_geometry()
-    except Exception:
-        raise WindowError(f"Window '{p.LIMBUS_NAME}' not found.")
-
-    client_width, client_height = geom.width, geom.height
+    # Strip window decorations when the backend reports a decorated rect (e.g. GNOME
+    # SSD frames: 1288x754 -> 1280x720). No-op when the rect is already the content.
+    left, top, client_width, client_height = wl.content_rect(
+        win.left, win.top, win.width, win.height
+    )
 
     target_ratio = 16 / 9
     if client_width / client_height > target_ratio:
@@ -917,12 +861,16 @@ def set_window():
         target_width = client_width
         target_height = client_height
 
-    left, top = get_absolute_position(w)
     left += (client_width - target_width) // 2
     top += (client_height - target_height) // 2
 
     p.WINDOW = (left, top, target_width, target_height)
     p.SCREEN = get_virtual_screen_bounds()
+
+    # Point the PipeWire window capture at the resolved client rect.
+    wl.register_window_frame(win.frame_rect())
+    wl.prepare_window_capture(p.WINDOW)
+
     check_window()
 
     if int(client_width / 16) != int(client_height / 9):

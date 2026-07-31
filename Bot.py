@@ -20,14 +20,14 @@ import source.utils.params as p
 # INIT RUN
 
 start_locations = {
-    "Drive": 0, 
-    "MD": 1, 
-    "Start": 2, 
-    "enterInvert": 5, 
-    "ConfirmTeam": 6, 
-    "enterBonus": 12, 
-    "Confirm.0": 15, 
-    "refuse": 17, 
+    "Drive": 0,
+    "MD": 1,
+    "Start": 2,
+    "enterInvert": 5,
+    "ConfirmTeam": 6,
+    "enterBonus": 12,
+    "Confirm.0": 15,
+    "refuse": 17,
     "Confirm": 23
 }
 
@@ -61,18 +61,48 @@ def dungeon_start():
         lambda: now_click.button("starlight"),
         Action("Confirm.0", ver="refuse"),
 
-        lambda: time.sleep(0.2),
-        lambda: now_click.button("giftSearch"),
-        ClickAction(p.GIFTS[0]["checks"][2], ver="gifts!"),
-        lambda: ClickAction((1239, 395), ver="selected!").execute(try_click) if (p.BUFF[3] or p.GIFTS[0]['checks'][5] == 0) else None,
-        lambda: ClickAction((1239, 549), ver="selected!").execute(try_click) if (p.BUFF[3] or p.GIFTS[0]['checks'][5] == 1) else None,
-        lambda: ClickAction((1239, 703), ver="selected!").execute(try_click) if p.BUFF[9] else None,
-        ClickAction((1624, 882)),
+        lambda: time.sleep(0.2)
 
-        lambda: wait_while_condition(lambda: not now.button("loading"), lambda: gui.press("space") if now.button("Confirm") else None, timer=5),
-        loading_halt
     ]
-    
+
+    if p.HOS_MODE is False:
+        ACTIONS.extend([
+            lambda: now_click.button("giftSearchOn"),
+            ClickAction(p.GIFTS[0]["checks"][2], ver="gifts!"),
+            lambda: ClickAction((1239, 395), ver="selected!").execute(try_click) if (p.BUFF[3] or p.GIFTS[0]['checks'][5] == 0) else None,
+            lambda: ClickAction((1239, 549), ver="selected!").execute(try_click) if (p.BUFF[3] or p.GIFTS[0]['checks'][5] == 1) else None,
+            lambda: ClickAction((1239, 703), ver="selected!").execute(try_click) if p.BUFF[9] else None,
+            ClickAction((1624, 882)),#
+
+            lambda: wait_while_condition(lambda: not now.button("loading"), lambda: gui.press("space") if now.button("Confirm") else None, timer=5),
+            loading_halt
+            ])
+    else:
+        ACTIONS.extend([
+            lambda: now_click.button("giftSearch"),
+            ClickAction(p.GIFTS[0]["checks"][2], ver="gifts!"),
+            lambda: ClickAction((1239, 395), ver="selected!").execute(try_click) if (p.BUFF[3] or p.GIFTS[0]['checks'][5] == 0) else None,
+            lambda: ClickAction((1239, 549), ver="selected!").execute(try_click) if (p.BUFF[3] or p.GIFTS[0]['checks'][5] == 1) else None,
+            lambda: ClickAction((1239, 703), ver="selected!").execute(try_click) if p.BUFF[9] else None,
+            ClickAction((1624, 882)),
+
+            lambda: wait_while_condition(lambda: not now.button("loading"), lambda: gui.press("space") if now.button("Confirm") else None, timer=5),
+
+            lambda: ClickAction((985, 286)).execute(try_click),
+            lambda: time.sleep(1),
+            lambda: ClickAction((1060, 816)).execute(try_click),
+            lambda: time.sleep(1),
+            lambda: gui.press("enter"),
+            lambda: time.sleep(1),
+            lambda: gui.press("enter"),
+            lambda: time.sleep(1),
+            lambda: gui.press("enter"),
+            lambda: time.sleep(3),
+
+            loading_halt
+            ])
+
+
     failed = 0
     while True:
         try:
@@ -115,10 +145,10 @@ def click_bonus():
 def bonus_gone():
     if p.HARD:
         if not loc_rgb.button("bonus", "hardbonus", wait=1):
-            return now_rgb.button("bonus_off", "hardbonus", conf=0.8)
+            return now_rgb.button("bonus_off", "hardbonus", conf=0.7)
         else: return False
     elif not loc_rgb.button("bonus", wait=1):
-        return now_rgb.button("bonus_off", conf=0.8)
+        return now_rgb.button("bonus_off", conf=0.7)
     else: return False
 
 def handle_bonus():
@@ -156,7 +186,10 @@ def dungeon_end():
                 if now.button(key):
                     i = end_locations[key]
                     break
-            else: break
+            else:
+                completed = now.button("Drive")
+                if completed: print("MD Finished!")
+                return completed
             try:
                 chain_actions(try_click, TERMIN[i:])
             except RuntimeError:
@@ -166,14 +199,14 @@ def dungeon_end():
             pause(e.window)
         if now.button("out_of_fuel"):
             logging.error("We are out of enkephalin!")
+            p.STOP_REASON = "Out of enkephalin"
             if p.ALTF4: close_limbus()
             if p.APP: QMetaObject.invokeMethod(p.APP, "stop_execution", Qt.ConnectionType.QueuedConnection)
             raise StopExecution
         if failed > 5:
             print("Termination error")
             logging.error("Termination error")
-            break
-    print("MD Finished!")
+            return False
 
 # FAIL RUN
 FAIL = [
@@ -202,7 +235,10 @@ def dungeon_fail():
                 if now.button(key):
                     i = fail_locations[key]
                     break
-            else: break
+            else:
+                finished = now.button("Drive")
+                if finished: print("MD Failed!")
+                return finished
             try:
                 chain_actions(try_click, FAIL[i:])
             except RuntimeError:
@@ -213,8 +249,7 @@ def dungeon_fail():
         if failed > 5:
             print("Termination error")
             logging.error("Termination error")
-            break
-    print("MD Failed!")
+            return False
 
 
 # MAIN LOOP
@@ -250,15 +285,16 @@ def main_loop():
             else:
                 win_click(1117, 700)
             connection()
-        
+
         if now.button("victory"):
-            logging.info('Run Completed')
-            dungeon_end()
-            return True
+            if dungeon_end():
+                logging.info('Run Completed')
+                return True
+            return False
 
         if now.button("defeat"):
-            logging.info('Run Failed')
-            dungeon_fail()
+            if dungeon_fail():
+                logging.info('Run Failed')
             return False
 
         try:
@@ -287,25 +323,29 @@ def main_loop():
                     last_error = 0
                     p.LVL = 1
                     break
-            else: 
+            else:
                 # check if end
                 for key in end_locations.keys():
                     if now.button(key):
-                        logging.info('Run Completed')
-                        dungeon_end()
-                        return True
-                
+                        if dungeon_end():
+                            logging.info('Run Completed')
+                            return True
+                        return False
+
                 if last_error != 0:
                     if time.time() - last_error > 30:
+                        # cv2.imwrite(f"error_{int(time.time())}.png", screenshot())
                         handle_fuckup()
                         error += 1
                 else:
+                    # cv2.imwrite(f"error_{int(time.time())}.png", screenshot())
                     last_error = time.time()
         else:
             last_error = 0
 
         if error > 20:
             logging.error('We are stuck')
+            p.STOP_REASON = "Bot stuck"
             if p.ALTF4: close_limbus()
             if p.APP: QMetaObject.invokeMethod(p.APP, "stop_execution", Qt.ConnectionType.QueuedConnection)
             raise StopExecution # change maybe
@@ -333,21 +373,24 @@ def set_team(team, teams, keywordless):
 
     logging.info(f'Team: {p.TEAM[0]}')
     logging.info(f'Group: {p.TEAM[0]}#{p.NAME_ORDER + 1}')
-    
+
     difficulty = "HARD" if p.HARD else "NORMAL"
-    if p.EXTREME: 
+    if p.EXTREME:
         difficulty = "EXTREME"
         lunar_comp = list(set(["slashmemory", "piercememory", "bluntmemory"]) - set([f"{name.lower()}memory" for name in p.TEAM]))
         stones = [f"stone{i}" for i in range(7)] + lunar_comp
         p.KEYWORDLESS = keywordless | {"lunarmemory": 2} | {gift: 2 for gift in stones}
     else:
         p.KEYWORDLESS = keywordless
+    if p.HOS_MODE:
+        p.KEYWORDLESS = p.KEYWORDLESS | {"spiderweb": 2}
     logging.info(f'Difficulty: {difficulty}')
 
 
 def execute_me(count, count_exp, count_thd, teams, settings, hard, app, warning):
     p.HARD = hard
     p.BONUS = settings['bonus']
+    p.COLLECT = settings['collect']
     p.RESTART = settings['restart']
     p.ALTF4, p.ALTF4_lux = settings['altf4']
     p.NETZACH = settings['enkephalin']
@@ -356,11 +399,15 @@ def execute_me(count, count_exp, count_thd, teams, settings, hard, app, warning)
     p.CARD = settings['card']
     p.WISHMAKING = settings['wishmaking']
     p.WINRATE = settings['winrate']
+    p.HOS_MODE = settings['hos_mode']
     p.EXTREME = settings['infinity']
     p.APP = app
     p.WARNING = warning
 
     if count == -1: count = 9999
+    if hasattr(gui, "prepare_capture"):
+        # Wayland
+        gui.prepare_capture()
     print("Switch to Limbus Window")
     countdown(10)
     logging.info('Script started')
@@ -375,7 +422,7 @@ def execute_me(count, count_exp, count_thd, teams, settings, hard, app, warning)
             if team_keys and p.APP: QMetaObject.invokeMethod(p.APP, "lux_hide", Qt.ConnectionType.QueuedConnection)
             elif p.ALTF4_lux:
                 close_limbus()
-            
+
         if team_keys:
             print("Entering MD!")
             rotator = cycle(team_keys)
@@ -399,4 +446,3 @@ def execute_me(count, count_exp, count_thd, teams, settings, hard, app, warning)
 
     QMetaObject.invokeMethod(p.APP, "stop_execution", Qt.ConnectionType.QueuedConnection)
     return
-

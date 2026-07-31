@@ -71,6 +71,7 @@ REG = {
     "starlight"      : (1069,  525,   42,   42),
     "refuse"         : (1181,  818,  295,  124),
     "giftSearch"     : (1640,  207,   70,   60),
+    "giftSearchOn"   : (1640,  207,   70,   60),
     "StartEGO"       : ( 198,  207,  937,  682),
     "Claim"          : (1540,  831,  299,  132),
     "ConfirmInvert"  : ( 987,  704,  318,   71),
@@ -105,6 +106,7 @@ REG = {
     "ego_usage"      : (1850, 1020,   70,   60),
     "RetryStage"     : ( 937,  476,  170,   46),
     "Confirm_retry"  : ( 829,  763,  278,   53),
+    "arayashu"       : (   0,  940, 1920,  140),
 
     # event.py
     "textEGO"        : (1031,  254,  713,  516),
@@ -143,8 +145,8 @@ REG = {
     "alldead"        : ( 261, 1019, 1391,   41),
     "suicide"        : ( 756,  233,  437,  121),
     "forfeit"        : ( 740,  547,  151,  208),
-    "directions"     : ( 508,  130,  200,  800),
-    "directions_init": ( 813,  130,  200,  800),
+    "directions"     : ( 482,  130,  200,  800),
+    "directions_init": ( 800,  130,  200,  800),
     "secretEncounter": (1595,  767,  183,  100),
     "skipEncounter"  : (1379,  763,  195,  110),
 
