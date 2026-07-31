@@ -42,7 +42,7 @@
 #define RGB_PIN 48
 #define RGB_BRIGHTNESS 10
 #define FIRMWARE_VERSION                                                       \
-  "3.4.2" // Update alongside esp32_firmware/firmware_version
+  "3.5.0" // Update alongside esp32_firmware/firmware_version
 #define AUTH_TIMEOUT_MS                                                        \
   10000            // Lock if no handshake within 10s of first serial data
 #define MAX_CMD_LEN 64 // Drop the input buffer if no newline arrives by here
