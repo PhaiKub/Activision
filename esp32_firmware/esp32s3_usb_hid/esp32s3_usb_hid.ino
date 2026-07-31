@@ -162,9 +162,11 @@ void processCommand(String cmd) {
     firstSerialTime = millis();
   }
 
-  // ── Hard-locked: refuse EVERYTHING (no ping, no version, nothing) ─────────
-  if (hardLocked) {
-    // Don't even respond — device appears dead to unauthenticated bots
+  // ── Hard-locked: refuse everything except a fresh handshake ───────────────
+  // Don't respond — the device appears dead to unauthenticated bots. 'H' is
+  // the one exception so a matching-version host can clear the lock itself;
+  // without it the only way out is a physical replug.
+  if (hardLocked && type != 'H') {
     return;
   }
 
@@ -323,15 +325,14 @@ void loop() {
     }
   }
 
-  // Detect Python disconnect → reset auth so next connection must handshake
-  // again
-  if (everConnected && !Serial) {
-    currentLedState = LED_READY;
-    everConnected = false;
-    authenticated = false;
-    hardLocked = false;
-    serialSeen = false;
-  }
+  // NOTE: do not gate auth on `!Serial` here. On the S3's native USB the CDC
+  // "connected" flag tracks DTR, which the host does not reliably assert, so
+  // `!Serial` reads true while data is still flowing. Resetting auth on it
+  // wiped `authenticated` one loop after the first accepted command (which is
+  // what sets everConnected), so exactly one move ran per handshake and every
+  // later command answered LOCKED. A host that never handshakes is already
+  // covered by the AUTH_TIMEOUT hard-lock above, and the LED state machine
+  // returns to LED_READY on its own once commands stop.
 
   delay(1);
 }
