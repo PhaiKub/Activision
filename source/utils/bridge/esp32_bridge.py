@@ -18,6 +18,7 @@ defined in esp32s3_usb_hid.ino:
 
 import serial
 import serial.tools.list_ports
+import sys
 import threading
 import time
 import logging
@@ -35,6 +36,13 @@ BOOT_DELAY       = 1.5      # seconds to wait after opening (ESP32 resets on DTR
 
 # Arduino Mouse.move() takes signed 8-bit deltas; larger moves must be split.
 HID_MOVE_MAX     = 127
+
+# Minimum spacing between fire-and-forget commands (M/S). Full-speed USB HID
+# is polled at 1 kHz and the firmware drains about one line per loop pass, so
+# an unpaced burst from the trajectory engine can outrun it, starve loop()
+# and watchdog-reset the board — the link then drops mid-run. The old ACK'd
+# protocol paced these naturally (~2 ms round trip); keep that floor.
+NOREPLY_MIN_GAP  = 0.002
 
 
 # ── Key code table for Arduino USBHIDKeyboard ─────────────────────────────────
@@ -356,12 +364,18 @@ class ESP32Bridge:
         """Fire-and-forget: send a high-frequency command without awaiting OK.
 
         Used for mouse move/scroll where a per-command round-trip would add
-        milliseconds of latency to every step. The firmware does not ACK these.
+        milliseconds of latency to every step. The firmware does not ACK these,
+        so enforce NOREPLY_MIN_GAP between writes to keep bursts below what
+        the firmware can drain (see the constant's comment).
         """
         with self._lock:
             if not self.is_open() and not self._reconnect():
                 raise BridgeError("ESP32Bridge is not connected")
+            gap = NOREPLY_MIN_GAP - (time.monotonic() - getattr(self, "_last_noreply", 0.0))
+            if gap > 0:
+                time.sleep(gap)
             self._write(cmd)
+            self._last_noreply = time.monotonic()
 
     def _send(self, cmd: str):
         """Send a command line and wait for OK / ERR (auto-reconnect once)."""
@@ -485,12 +499,42 @@ class ESP32Bridge:
     # ── No-ops (Ghub-only features) ───────────────────────────────────────────
 
     def mouse_settings_apply(self):
-        """No-op: ESP32 HID uses raw relative moves — no Windows accel to disable."""
-        pass
+        """Disable Windows pointer acceleration for the run (1:1 raw deltas).
+
+        The ESP32 enumerates as a real HID mouse, so its relative deltas DO go
+        through Windows "Enhance pointer precision" like any physical mouse —
+        the Ghub DLL disabled this in its settings_apply and this backend must
+        too. With acceleration left on, the pointer-gain model keeps chasing
+        the speed-dependent accel curve, repeating each trajectory many times
+        and flooding the serial link with correction traffic. Settings are
+        restored by mouse_settings_restore() (called on pause/stop).
+        """
+        if sys.platform != "win32" or getattr(self, "_saved_mouse", None) is not None:
+            return
+        import ctypes
+        u32 = ctypes.windll.user32
+        mouse = (ctypes.c_int * 3)()
+        speed = ctypes.c_int()
+        if not u32.SystemParametersInfoW(0x0003, 0, ctypes.byref(mouse), 0):    # SPI_GETMOUSE
+            return
+        u32.SystemParametersInfoW(0x0070, 0, ctypes.byref(speed), 0)            # SPI_GETMOUSESPEED
+        self._saved_mouse = (list(mouse), speed.value)
+        flat = (ctypes.c_int * 3)(0, 0, 0)                                      # accel off
+        u32.SystemParametersInfoW(0x0004, 0, ctypes.byref(flat), 0)             # SPI_SETMOUSE
+        u32.SystemParametersInfoW(0x0071, 0, 10, 0)                             # SPI_SETMOUSESPEED → 1:1
 
     def mouse_settings_restore(self):
-        """No-op: nothing to restore."""
-        pass
+        """Restore the Windows pointer settings saved by mouse_settings_apply()."""
+        saved = getattr(self, "_saved_mouse", None)
+        if saved is None:
+            return
+        import ctypes
+        u32 = ctypes.windll.user32
+        mouse_vals, speed_val = saved
+        buf = (ctypes.c_int * 3)(*mouse_vals)
+        u32.SystemParametersInfoW(0x0004, 0, ctypes.byref(buf), 0)              # SPI_SETMOUSE
+        u32.SystemParametersInfoW(0x0071, 0, speed_val, 0)                      # SPI_SETMOUSESPEED
+        self._saved_mouse = None
 
     def shutdown(self, force=False):
         self.close()
