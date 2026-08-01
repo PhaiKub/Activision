@@ -37,13 +37,6 @@ BOOT_DELAY       = 1.5      # seconds to wait after opening (ESP32 resets on DTR
 # Arduino Mouse.move() takes signed 8-bit deltas; larger moves must be split.
 HID_MOVE_MAX     = 127
 
-# Minimum spacing between fire-and-forget commands (M/S). Full-speed USB HID
-# is polled at 1 kHz and the firmware drains about one line per loop pass, so
-# an unpaced burst from the trajectory engine can outrun it, starve loop()
-# and watchdog-reset the board — the link then drops mid-run. The old ACK'd
-# protocol paced these naturally (~2 ms round trip); keep that floor.
-NOREPLY_MIN_GAP  = 0.002
-
 # Minimum time between reconnect attempts. Opening the port resets the board
 # (DTR), and a full boot + ping + handshake takes a few seconds — retrying
 # faster than that just keeps knocking the board over (see _reconnect).
@@ -387,23 +380,6 @@ class ESP32Bridge:
             self._ser.write(raw)
             self._ser.flush()
 
-    def _send_noreply(self, cmd: str):
-        """Fire-and-forget: send a high-frequency command without awaiting OK.
-
-        Used for mouse move/scroll where a per-command round-trip would add
-        milliseconds of latency to every step. The firmware does not ACK these,
-        so enforce NOREPLY_MIN_GAP between writes to keep bursts below what
-        the firmware can drain (see the constant's comment).
-        """
-        with self._lock:
-            if not self.is_open() and not self._reconnect():
-                raise BridgeError("ESP32Bridge is not connected")
-            gap = NOREPLY_MIN_GAP - (time.monotonic() - getattr(self, "_last_noreply", 0.0))
-            if gap > 0:
-                time.sleep(gap)
-            self._write(cmd)
-            self._last_noreply = time.monotonic()
-
     def _send(self, cmd: str):
         """Send a command line and wait for OK / ERR (auto-reconnect once).
 
@@ -414,11 +390,13 @@ class ESP32Bridge:
           only ERRs on an unknown command type), so ERR proves our line was
           corrupted and did NOT execute — safe to resend anything.
         - ACK timeout: the command may or may not have executed, so only
-          idempotent press/release commands (D/U/K/R/A) are resent; 'C' is
-          not — a lost-reply-but-executed click would double-click, and the
-          bot's own verify logic already handles an unregistered click.
+          commands that are safe to repeat are resent: press/release
+          (D/U/K/R/A) are idempotent, and a doubled move/scroll step (M/S)
+          is corrected by the host's closed-loop positioning. 'C' is not
+          retried — a lost-reply-but-executed click would double-click, and
+          the bot's own verify logic already handles an unregistered click.
         """
-        idempotent = cmd[:1] in ("D", "U", "K", "R", "A")
+        idempotent = cmd[:1] in ("D", "U", "K", "R", "A", "M", "S")
         with self._lock:
             if not self.is_open() and not self._reconnect():
                 raise BridgeError("ESP32Bridge is not connected")
@@ -504,11 +482,13 @@ class ESP32Bridge:
     def mouse_move_relative(self, dx: int, dy: int):
         # Arduino Mouse.move() deltas are signed 8-bit; split larger moves into
         # multiple steps so big jumps don't overflow/wrap on the firmware side.
+        # ACK'd (firmware 3.5.1): the OK round-trip self-clocks the stream so
+        # the host can never run ahead of the firmware's tiny RX buffer.
         dx, dy = int(dx), int(dy)
         while dx or dy:
             step_x = max(-HID_MOVE_MAX, min(HID_MOVE_MAX, dx))
             step_y = max(-HID_MOVE_MAX, min(HID_MOVE_MAX, dy))
-            self._send_noreply(f"M {step_x} {step_y}")
+            self._send(f"M {step_x} {step_y}")
             dx -= step_x
             dy -= step_y
 
@@ -522,7 +502,7 @@ class ESP32Bridge:
         self._send(f"C {self._button_code(button)}")
 
     def mouse_scroll(self, wheel: int):
-        self._send_noreply(f"S {int(wheel)}")
+        self._send(f"S {int(wheel)}")
 
     def key_press(self, key: str):
         self._send(f"K {self._key_code(key)}")

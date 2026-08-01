@@ -42,7 +42,7 @@
 #define RGB_PIN 48
 #define RGB_BRIGHTNESS 10
 #define FIRMWARE_VERSION                                                       \
-  "3.5.0" // Update alongside esp32_firmware/firmware_version
+  "3.5.1" // Update alongside esp32_firmware/firmware_version
 #define AUTH_TIMEOUT_MS                                                        \
   10000            // Lock if no handshake within 10s of first serial data
 #define MAX_CMD_LEN 64 // Drop the input buffer if no newline arrives by here
@@ -234,10 +234,13 @@ void processCommand(char *cmd) {
 
   triggerActive();
 
-  // ── High-frequency, fire-and-forget commands (no OK ACK) ──────────────────
-  // Mouse move/scroll are sent in a tight loop by the host; ACKing each one
-  // would add a serial round-trip of latency per step. The host does not wait
-  // for a reply, so these must NOT print anything.
+  // ── Acknowledged commands (every one replies OK) ──────────────────────────
+  // M/S are ACK'd again as of 3.5.1. The fire-and-forget variant let the
+  // host run ahead of the 256-byte CDC RX buffer (not enlargeable on core
+  // 2.0.17), and the resulting overflow corruption / TX backpressure kept
+  // wedging the link a few minutes into a run. One-command-one-OK is
+  // self-clocking — at most one line is ever in flight — the same protocol
+  // the pre-3.4.2 firmware ran overnight without issues.
   switch (type) {
   case 'M': {
     char *end1, *end2;
@@ -249,15 +252,11 @@ void processCommand(char *cmd) {
     mx = constrain(mx, -127, 127);
     my = constrain(my, -127, 127);
     Mouse.move((char)mx, (char)my, 0);
-    return;
+    break;
   }
   case 'S':
     Mouse.move(0, 0, constrain(strtol(args, nullptr, 10), -127, 127));
-    return;
-  }
-
-  // ── Acknowledged commands (reply OK / ERR) ────────────────────────────────
-  switch (type) {
+    break;
   case 'C':
     Mouse.click(getBtn((int)strtol(args, nullptr, 10)));
     break;
@@ -277,8 +276,13 @@ void processCommand(char *cmd) {
     Keyboard.releaseAll();
     break;
   default:
+    // Unknown type = line corrupted by RX overflow during a move stream.
+    // Stay SILENT: the host is not reading during streams, so replying ERR
+    // to every garbage fragment backs up our TX FIFO, println then stalls
+    // loop(), RX overflows even harder, and the spiral wedges the USB stack
+    // (board drops off the bus until replugged). The host's retry logic
+    // already covers the lost command.
     triggerError();
-    Serial.println("ERR");
     return;
   }
   Serial.println("OK");
@@ -301,6 +305,12 @@ void setup() {
   USB.begin();
 
   Serial.begin(115200);
+  // Never let a reply print stall loop() for long if the host isn't reading
+  // (it doesn't read during fire-and-forget move streams). Default is 100 ms
+  // per write; a stalled loop() is what lets the RX buffer overflow.
+  // NOTE: do NOT call Serial.setRxBufferSize() here — on core 2.0.17 it
+  // wedges the CDC (verified: 20-line burst then silence).
+  Serial.setTxTimeoutMs(20);
 
   unsigned long startWait = millis();
   while (!Serial && (millis() - startWait < 3000)) {
