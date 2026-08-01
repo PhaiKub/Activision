@@ -209,15 +209,18 @@ class ESP32Bridge:
             )
             time.sleep(BOOT_DELAY)   # ESP32 resets on DTR; give it time to boot
             ser.reset_input_buffer()
-            if not self._ping_serial(ser):
-                ser.close()
-                raise BridgeError(f"Device on {port} did not respond to PING")
+            alive = self._ping_serial(ser)
+            # A hard-locked board (auth timed out in some earlier session)
+            # ignores P but still accepts H, so let the handshake double as
+            # the liveness probe instead of failing on the silent ping.
             if not self._handshake_serial(ser):
                 ser.close()
-                raise BridgeError(
-                    f"Firmware version mismatch on {port}. "
-                    "Please flash the updated firmware."
-                )
+                if alive:
+                    raise BridgeError(
+                        f"Firmware version mismatch on {port}. "
+                        "Please flash the updated firmware."
+                    )
+                raise BridgeError(f"Device on {port} did not respond to PING")
             self._ser  = ser
             self._port = port
             logging.info(f"[ESP32Bridge] Connected on {port}")
@@ -402,29 +405,51 @@ class ESP32Bridge:
             self._last_noreply = time.monotonic()
 
     def _send(self, cmd: str):
-        """Send a command line and wait for OK / ERR (auto-reconnect once)."""
+        """Send a command line and wait for OK / ERR (auto-reconnect once).
+
+        One retry on delivery problems, because a command line can be lost or
+        mangled by CDC RX-overflow framing corruption right after a long move
+        stream:
+        - ERR reply: D/U/K/R/A/C can never legitimately ERR (the firmware
+          only ERRs on an unknown command type), so ERR proves our line was
+          corrupted and did NOT execute — safe to resend anything.
+        - ACK timeout: the command may or may not have executed, so only
+          idempotent press/release commands (D/U/K/R/A) are resent; 'C' is
+          not — a lost-reply-but-executed click would double-click, and the
+          bot's own verify logic already handles an unregistered click.
+        """
+        idempotent = cmd[:1] in ("D", "U", "K", "R", "A")
         with self._lock:
             if not self.is_open() and not self._reconnect():
                 raise BridgeError("ESP32Bridge is not connected")
             try:
-                self._write(cmd)
+                for attempt in range(2):
+                    self._write(cmd)
 
-                deadline = time.monotonic() + CMD_TIMEOUT
-                while time.monotonic() < deadline:
-                    line = self._ser.readline().decode("ascii", errors="ignore").strip()
-                    if line == "OK":
-                        return
-                    if line == "ERR":
+                    got_err = False
+                    deadline = time.monotonic() + CMD_TIMEOUT
+                    while time.monotonic() < deadline:
+                        line = self._ser.readline().decode("ascii", errors="ignore").strip()
+                        if line == "OK":
+                            return
+                        if line == "ERR":
+                            got_err = True
+                            break
+                        if line:   # unexpected but non-empty — ignore and keep reading
+                            logging.debug(f"[ESP32Bridge] unexpected: {line!r}")
+                    # Purge any late/partial reply so it can't be mis-read as
+                    # the ACK for the next command (protocol resync).
+                    try:
+                        self._ser.reset_input_buffer()
+                    except Exception:
+                        pass
+                    if attempt == 0 and (got_err or idempotent):
+                        logging.warning(
+                            f"[ESP32Bridge] {'ERR for' if got_err else 'No ACK to'} {cmd!r}; retrying once")
+                        continue
+                    if got_err:
                         raise BridgeError(f"ESP32 returned ERR for command: {cmd!r}")
-                    if line:   # unexpected but non-empty — ignore and keep reading
-                        logging.debug(f"[ESP32Bridge] unexpected: {line!r}")
-                # Timed out: purge any late/partial reply so it can't be
-                # mis-read as the ACK for the next command (protocol resync).
-                try:
-                    self._ser.reset_input_buffer()
-                except Exception:
-                    pass
-                raise BridgeError(f"Timed out waiting for ACK to command: {cmd!r}")
+                    raise BridgeError(f"Timed out waiting for ACK to command: {cmd!r}")
             except BridgeError:
                 raise
             except Exception as exc:
