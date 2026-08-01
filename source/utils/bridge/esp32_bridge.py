@@ -44,6 +44,11 @@ HID_MOVE_MAX     = 127
 # protocol paced these naturally (~2 ms round trip); keep that floor.
 NOREPLY_MIN_GAP  = 0.002
 
+# Minimum time between reconnect attempts. Opening the port resets the board
+# (DTR), and a full boot + ping + handshake takes a few seconds — retrying
+# faster than that just keeps knocking the board over (see _reconnect).
+RECONNECT_COOLDOWN = 3.0
+
 
 # ── Key code table for Arduino USBHIDKeyboard ─────────────────────────────────
 #
@@ -325,9 +330,19 @@ class ESP32Bridge:
         """Try to re-open the last known port after a transient USB drop.
 
         Caller must hold self._lock. Returns True if the link is live again.
+
+        Rate-limited: opening the port toggles DTR, which RESETS the board.
+        Without a cooldown, an error-recovery loop (e.g. handle_fuckup
+        clicking away at a dead link) hammers the board with reset cycles —
+        heard as rapid USB connect/disconnect sounds — and it never gets the
+        few seconds it needs to boot back up.
         """
         if not self._port:
             return False
+        now = time.monotonic()
+        if now - getattr(self, "_last_reconnect", 0.0) < RECONNECT_COOLDOWN:
+            return False
+        self._last_reconnect = now
         # Drop the stale handle before retrying the same port.
         if self._ser is not None:
             try:
@@ -339,6 +354,15 @@ class ESP32Bridge:
             logging.info(f"[ESP32Bridge] Attempting reconnect on {self._port}…")
             self._connect(self._port)   # re-pings + re-handshakes
             self._opened = True
+            # The board rebooted on reconnect, so its HID state is fresh; make
+            # sure no mouse button or key is left latched from the old link.
+            try:
+                self._write("U 1")
+                self._write("U 2")
+                self._write("A")
+                self._ser.reset_input_buffer()   # discard their OK/LOCKED replies
+            except Exception:
+                pass
             return True
         except BridgeError as exc:
             logging.warning(f"[ESP32Bridge] Reconnect failed: {exc}")

@@ -50,7 +50,12 @@
 USBHIDMouse Mouse;
 USBHIDKeyboard Keyboard;
 
-String inputBuffer = "";
+// Fixed command buffer — no Arduino String. The bot streams hundreds of
+// commands per second for hours; per-byte String += and per-command
+// substring() churned the heap until it fragmented and the firmware fell
+// over mid-run (USB dropped off the bus after a few minutes of grinding).
+char inputBuffer[MAX_CMD_LEN + 1];
+uint8_t inputLen = 0;
 bool usbReady = false;
 
 // ──── LED state machine ────
@@ -74,6 +79,13 @@ unsigned long firstSerialTime = 0; // timestamp of first serial data received
 bool serialSeen = false;           // has any serial data been received?
 
 void setRGB(uint8_t r, uint8_t g, uint8_t b) {
+  // Only touch the LED when the colour actually changes. Several LED states
+  // "set" a solid colour every loop pass; unconditional neopixelWrite spammed
+  // an RMT transaction every ~1 ms alongside serial + HID load.
+  static uint8_t lastR = 255, lastG = 255, lastB = 255;
+  if (r == lastR && g == lastG && b == lastB)
+    return;
+  lastR = r; lastG = g; lastB = b;
   neopixelWrite(RGB_PIN, r, g, b);
 }
 
@@ -150,11 +162,17 @@ uint8_t getBtn(int b) {
 }
 
 // ──── Command processor ────
-void processCommand(String cmd) {
-  cmd.trim();
-  if (cmd.length() == 0)
+void processCommand(char *cmd) {
+  // In-place trim; parsing below is heap-free (see inputBuffer comment).
+  while (*cmd == ' ' || *cmd == '\t')
+    cmd++;
+  size_t len = strlen(cmd);
+  while (len > 0 && (cmd[len - 1] == ' ' || cmd[len - 1] == '\t'))
+    cmd[--len] = '\0';
+  if (len == 0)
     return;
-  char type = cmd.charAt(0);
+  char type = cmd[0];
+  const char *args = cmd + 1; // strtol skips leading spaces itself
 
   // Track first serial activity for auth timeout
   if (!serialSeen) {
@@ -174,9 +192,10 @@ void processCommand(String cmd) {
   switch (type) {
   case 'H': {
     // Handshake: bot sends its expected firmware version
-    String clientVer = cmd.substring(2);
-    clientVer.trim();
-    if (clientVer == FIRMWARE_VERSION) {
+    const char *clientVer = args;
+    while (*clientVer == ' ')
+      clientVer++;
+    if (strcmp(clientVer, FIRMWARE_VERSION) == 0) {
       authenticated = true;
       hardLocked = false;
       if (currentLedState == LED_LOCKED)
@@ -221,39 +240,38 @@ void processCommand(String cmd) {
   // for a reply, so these must NOT print anything.
   switch (type) {
   case 'M': {
-    int sp1 = cmd.indexOf(' ', 0);
-    int sp2 = cmd.indexOf(' ', sp1 + 1);
-    if (sp1 < 0 || sp2 < 0)
-      return;
+    char *end1, *end2;
+    long mx = strtol(args, &end1, 10);
+    long my = strtol(end1, &end2, 10);
+    if (end1 == args || end2 == end1)
+      return; // malformed — need two numbers
     // Mouse.move deltas are signed 8-bit; clamp defensively.
-    long mx = cmd.substring(sp1 + 1, sp2).toInt();
-    long my = cmd.substring(sp2 + 1).toInt();
     mx = constrain(mx, -127, 127);
     my = constrain(my, -127, 127);
     Mouse.move((char)mx, (char)my, 0);
     return;
   }
   case 'S':
-    Mouse.move(0, 0, constrain(cmd.substring(2).toInt(), -127, 127));
+    Mouse.move(0, 0, constrain(strtol(args, nullptr, 10), -127, 127));
     return;
   }
 
   // ── Acknowledged commands (reply OK / ERR) ────────────────────────────────
   switch (type) {
   case 'C':
-    Mouse.click(getBtn(cmd.substring(2).toInt()));
+    Mouse.click(getBtn((int)strtol(args, nullptr, 10)));
     break;
   case 'D':
-    Mouse.press(getBtn(cmd.substring(2).toInt()));
+    Mouse.press(getBtn((int)strtol(args, nullptr, 10)));
     break;
   case 'U':
-    Mouse.release(getBtn(cmd.substring(2).toInt()));
+    Mouse.release(getBtn((int)strtol(args, nullptr, 10)));
     break;
   case 'K':
-    Keyboard.press((uint8_t)cmd.substring(2).toInt());
+    Keyboard.press((uint8_t)strtol(args, nullptr, 10));
     break;
   case 'R':
-    Keyboard.release((uint8_t)cmd.substring(2).toInt());
+    Keyboard.release((uint8_t)strtol(args, nullptr, 10));
     break;
   case 'A':
     Keyboard.releaseAll();
@@ -303,17 +321,17 @@ void loop() {
   while (Serial.available()) {
     char c = Serial.read();
     if (c == '\n' || c == '\r') {
-      if (inputBuffer.length() > 0) {
+      if (inputLen > 0) {
+        inputBuffer[inputLen] = '\0';
         processCommand(inputBuffer);
-        inputBuffer = "";
+        inputLen = 0;
       }
+    } else if (inputLen < MAX_CMD_LEN) {
+      inputBuffer[inputLen++] = c;
     } else {
-      inputBuffer += c;
-      // Guard against unbounded growth from a stream with no line terminator
-      // (garbage / framing loss): the longest valid command is well under this.
-      if (inputBuffer.length() > MAX_CMD_LEN) {
-        inputBuffer = "";
-      }
+      // Line with no terminator (garbage / framing loss): drop it rather
+      // than grow — the longest valid command is well under MAX_CMD_LEN.
+      inputLen = 0;
     }
   }
 
