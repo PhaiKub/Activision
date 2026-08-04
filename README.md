@@ -107,6 +107,7 @@ To build standalone executables:
 ```powershell
 # Build app.exe + app_debug.exe via Nuitka
 # (esp32s3_usb_hid.bin is already in esp32_firmware/ and gets bundled automatically)
+pip install -r requirements-build.txt
 .\run-build-windows.ps1
 ```
 
