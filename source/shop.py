@@ -693,6 +693,7 @@ def sell(gifts):
     while True:
         if balance() < sum(gifts.values()):
             Action(p.SUPER, click=(600, 585), ver="sell").execute(click)
+            time.sleep(0.2)
             found_flag = False
             if search_sell((920, 295, 790, 345)):
                 found_flag = True
