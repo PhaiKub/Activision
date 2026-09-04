@@ -38,6 +38,10 @@ def _cmd(output_name: str, console_mode: str):
         "-m",
         "nuitka",
         "--onefile",
+        # Keep onefile compression single-threaded and at a lower-memory zstd
+        # level. The default level 22 compressor can exhaust RAM while packing
+        # the ~280 MB PySide6 payload on otherwise supported 16 GB systems.
+        "--low-memory",
         "--remove-output",
         "--enable-plugin=pyside6",
         "--assume-yes-for-downloads",
